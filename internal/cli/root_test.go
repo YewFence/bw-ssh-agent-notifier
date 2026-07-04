@@ -20,12 +20,15 @@ func TestRootCommand(t *testing.T) {
 		if cfg.NotifyBackend != "off" {
 			t.Fatalf("NotifyBackend = %q, want off", cfg.NotifyBackend)
 		}
+		if !cfg.NotifyFullTree {
+			t.Fatalf("NotifyFullTree = false, want true")
+		}
 		return nil
 	})
 	buffer := &bytes.Buffer{}
 	command.SetOut(buffer)
 	command.SetErr(buffer)
-	command.SetArgs([]string{"--notify", "off"})
+	command.SetArgs([]string{"--notify", "off", "--notify-full-process-tree"})
 
 	if err := command.Execute(); err != nil {
 		t.Fatalf("Execute() error = %v", err)
@@ -67,6 +70,7 @@ func TestRootCommandHelpShowsEnvOverrides(t *testing.T) {
 		"WRAPPER_NOTIFY_BACKEND",
 		"WRAPPER_NOTIFY_CALL_TIMEOUT",
 		"WRAPPER_NOTIFY_EXPIRE_TIMEOUT",
+		"WRAPPER_NOTIFY_FULL_PROCESS_TREE",
 		"WRAPPER_PARENT_DEPTH",
 	} {
 		if !strings.Contains(output, envName) {

@@ -60,6 +60,7 @@ func addConfigFlags(cmd *cobra.Command, cfg *config.Config) {
 	flags.StringVar(&cfg.NotifyBackend, "notify", cfg.NotifyBackend, "notification backend: dbus or off (env: WRAPPER_NOTIFY_BACKEND)")
 	flags.DurationVar(&cfg.NotifyCallTimeout, "notify-call-timeout", cfg.NotifyCallTimeout, "notification D-Bus call timeout (env: WRAPPER_NOTIFY_CALL_TIMEOUT)")
 	flags.DurationVar(&cfg.NotifyExpireTimeout, "notify-expire-timeout", cfg.NotifyExpireTimeout, "notification display timeout (env: WRAPPER_NOTIFY_EXPIRE_TIMEOUT)")
+	flags.BoolVar(&cfg.NotifyFullTree, "notify-full-process-tree", cfg.NotifyFullTree, "show the full process tree in notifications (env: WRAPPER_NOTIFY_FULL_PROCESS_TREE)")
 	flags.IntVar(&cfg.ParentDepth, "parent-depth", cfg.ParentDepth, "parent process depth to inspect (env: WRAPPER_PARENT_DEPTH)")
 	flags.StringVar(&cfg.LogLevel, "log-level", cfg.LogLevel, "log level: debug, info, warn, error")
 	flags.StringVar(&cfg.LogFormat, "log-format", cfg.LogFormat, "log format: text or json")

@@ -112,6 +112,65 @@ func ParentChain(parents []Summary) string {
 	return strings.Join(names, " <- ")
 }
 
+func ProcessChain(summary Summary, parents []Summary) string {
+	return formatProcessChain(processChainNames(summary, parents))
+}
+
+func CompactProcessChain(summary Summary, parents []Summary) string {
+	names := processChainNames(summary, parents)
+	compactNames := []string{names[0]}
+	for _, name := range names[1:] {
+		if isTerminalProcess(name) || isSessionProcess(name) {
+			break
+		}
+		compactNames = append(compactNames, name)
+		if isShellProcess(name) {
+			break
+		}
+	}
+	return formatProcessChain(compactNames)
+}
+
+func processChainNames(summary Summary, parents []Summary) []string {
+	names := make([]string, 0, 1+len(parents))
+	names = append(names, ProcessName(summary))
+	for _, parent := range parents {
+		names = append(names, ProcessName(parent))
+	}
+	return names
+}
+
+func formatProcessChain(names []string) string {
+	return strings.Join(names, " <- ")
+}
+
+func isShellProcess(name string) bool {
+	switch strings.ToLower(name) {
+	case "sh", "bash", "zsh", "fish", "dash", "ksh", "mksh", "yash", "nu", "nushell", "elvish", "tcsh", "csh":
+		return true
+	default:
+		return false
+	}
+}
+
+func isTerminalProcess(name string) bool {
+	switch strings.ToLower(name) {
+	case "ghostty", "kitty", "wezterm", "alacritty", "foot", "gnome-terminal-server", "konsole", "kgx", "xterm", "tilix", "terminator", "xfce4-terminal", "lxterminal", "mate-terminal":
+		return true
+	default:
+		return false
+	}
+}
+
+func isSessionProcess(name string) bool {
+	switch strings.ToLower(name) {
+	case "systemd", "init", "dbus-daemon", "dbus-broker", "gnome-session-binary", "startplasma-wayland", "startplasma-x11", "tmux", "tmux: server", "screen":
+		return true
+	default:
+		return false
+	}
+}
+
 func readProcess(pid int) (Summary, int, uint32, uint32, error) {
 	summary := Summary{PID: pid}
 	procDir := filepath.Join("/proc", strconv.Itoa(pid))

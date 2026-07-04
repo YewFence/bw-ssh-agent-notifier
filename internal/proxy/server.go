@@ -130,14 +130,27 @@ func (server Server) logClient(ctx context.Context, notifier notify.Notifier, lo
 	if server.Config.NotifyBackend == "off" {
 		return
 	}
-	clientName := process.ProcessName(process.Summary{PID: info.PID, Exe: info.Exe, Cmdline: info.Cmdline})
+	body := notificationBody(info, server.Config.NotifyFullTree)
+	if err := notifier.Send(ctx, notify.Notification{Summary: "SSH agent request", Body: body}); err != nil {
+		logger.Warn("send notification failed", "error", err)
+	}
+}
+
+func notificationBody(info process.Info, fullTree bool) string {
+	client := process.Summary{PID: info.PID, Exe: info.Exe, Cmdline: info.Cmdline}
+	clientName := process.ProcessName(client)
 	body := fmt.Sprintf("%s is using Bitwarden SSH agent\nPID %d", clientName, info.PID)
 	if info.Exe != "" {
 		body = fmt.Sprintf("%s · %s", body, info.Exe)
 	}
-	if err := notifier.Send(ctx, notify.Notification{Summary: "SSH agent request", Body: body}); err != nil {
-		logger.Warn("send notification failed", "error", err)
+	chain := process.CompactProcessChain(client, info.Parents)
+	if fullTree {
+		chain = process.ProcessChain(client, info.Parents)
 	}
+	if chain != clientName {
+		body = fmt.Sprintf("%s\nProcess tree %s", body, chain)
+	}
+	return body
 }
 
 func prepareSocket(path string) error {
