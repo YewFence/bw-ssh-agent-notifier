@@ -13,6 +13,7 @@ import (
 
 	"github.com/YewFence/bw-ssh-agent-notifier/internal/config"
 	"github.com/YewFence/bw-ssh-agent-notifier/internal/notify"
+	"github.com/YewFence/bw-ssh-agent-notifier/internal/process"
 )
 
 func TestServerProxiesBytes(t *testing.T) {
@@ -99,6 +100,45 @@ func TestServerProxiesBytes(t *testing.T) {
 	}
 	if err := <-upstreamDone; err != nil {
 		t.Fatalf("upstream error = %v", err)
+	}
+}
+
+func TestNotificationBodyIncludesCompactProcessTree(t *testing.T) {
+	body := notificationBody(process.Info{
+		PID: 42,
+		Exe: "/usr/bin/ssh",
+		Parents: []process.Summary{
+			{PID: 41, Exe: "/usr/bin/git"},
+			{PID: 40, Exe: "/usr/bin/zsh"},
+			{PID: 39, Exe: "/usr/bin/ghostty"},
+		},
+	}, false)
+
+	if !bytes.Contains([]byte(body), []byte("ssh is using Bitwarden SSH agent")) {
+		t.Fatalf("notificationBody() = %q, want client process", body)
+	}
+	if !bytes.Contains([]byte(body), []byte("Process tree ssh <- git <- zsh")) {
+		t.Fatalf("notificationBody() = %q, want process tree", body)
+	}
+	if bytes.Contains([]byte(body), []byte("ghostty")) {
+		t.Fatalf("notificationBody() = %q, want compact process tree", body)
+	}
+}
+
+func TestNotificationBodyCanIncludeFullProcessTree(t *testing.T) {
+	body := notificationBody(process.Info{
+		PID: 42,
+		Exe: "/usr/bin/ssh",
+		Parents: []process.Summary{
+			{PID: 41, Exe: "/usr/bin/git"},
+			{PID: 40, Exe: "/usr/bin/zsh"},
+			{PID: 39, Exe: "/usr/bin/ghostty"},
+			{PID: 38, Exe: "/usr/lib/systemd/systemd"},
+		},
+	}, true)
+
+	if !bytes.Contains([]byte(body), []byte("Process tree ssh <- git <- zsh <- ghostty <- systemd")) {
+		t.Fatalf("notificationBody() = %q, want full process tree", body)
 	}
 }
 

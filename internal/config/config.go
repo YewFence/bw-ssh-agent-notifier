@@ -13,6 +13,7 @@ const (
 	DefaultNotifyBackend       = "dbus"
 	DefaultNotifyCallTimeout   = 2 * time.Second
 	DefaultNotifyExpireTimeout = 4 * time.Second
+	DefaultNotifyFullTree      = false
 	DefaultParentDepth         = 5
 	DefaultLogLevel            = "info"
 	DefaultLogFormat           = "text"
@@ -24,6 +25,7 @@ type Config struct {
 	NotifyBackend       string
 	NotifyCallTimeout   time.Duration
 	NotifyExpireTimeout time.Duration
+	NotifyFullTree      bool
 	ParentDepth         int
 	LogLevel            string
 	LogFormat           string
@@ -36,6 +38,7 @@ func FromEnv() (Config, error) {
 		NotifyBackend:       envString("WRAPPER_NOTIFY_BACKEND", DefaultNotifyBackend),
 		NotifyCallTimeout:   DefaultNotifyCallTimeout,
 		NotifyExpireTimeout: DefaultNotifyExpireTimeout,
+		NotifyFullTree:      DefaultNotifyFullTree,
 		ParentDepth:         DefaultParentDepth,
 		LogLevel:            DefaultLogLevel,
 		LogFormat:           DefaultLogFormat,
@@ -60,6 +63,13 @@ func FromEnv() (Config, error) {
 			return Config{}, fmt.Errorf("parse WRAPPER_NOTIFY_EXPIRE_TIMEOUT: %w", err)
 		}
 		cfg.NotifyExpireTimeout = timeout
+	}
+	if value := os.Getenv("WRAPPER_NOTIFY_FULL_PROCESS_TREE"); value != "" {
+		fullTree, err := strconv.ParseBool(value)
+		if err != nil {
+			return Config{}, fmt.Errorf("parse WRAPPER_NOTIFY_FULL_PROCESS_TREE: %w", err)
+		}
+		cfg.NotifyFullTree = fullTree
 	}
 	if value := os.Getenv("WRAPPER_PARENT_DEPTH"); value != "" {
 		depth, err := strconv.Atoi(value)

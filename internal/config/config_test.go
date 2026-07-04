@@ -14,6 +14,7 @@ func TestFromEnv(t *testing.T) {
 	t.Setenv("WRAPPER_NOTIFY_BACKEND", "off")
 	t.Setenv("WRAPPER_NOTIFY_CALL_TIMEOUT", "3s")
 	t.Setenv("WRAPPER_NOTIFY_EXPIRE_TIMEOUT", "7s")
+	t.Setenv("WRAPPER_NOTIFY_FULL_PROCESS_TREE", "true")
 	t.Setenv("WRAPPER_PARENT_DEPTH", "2")
 
 	cfg, err := FromEnv()
@@ -34,6 +35,9 @@ func TestFromEnv(t *testing.T) {
 	}
 	if cfg.NotifyExpireTimeout != 7*time.Second {
 		t.Fatalf("NotifyExpireTimeout = %s", cfg.NotifyExpireTimeout)
+	}
+	if !cfg.NotifyFullTree {
+		t.Fatalf("NotifyFullTree = false, want true")
 	}
 	if cfg.ParentDepth != 2 {
 		t.Fatalf("ParentDepth = %d", cfg.ParentDepth)
