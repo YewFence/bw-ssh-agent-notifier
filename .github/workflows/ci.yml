@@ -1,0 +1,136 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Go and Other common Checks
+    runs-on: ubuntu-latest
+    env:
+      MISE_TASK_RUN_AUTO_INSTALL: "false"
+      MISE_LOCKED: "1"
+      MISE_ENV: "ci"
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          add_shims_to_path: true
+          cache_key: "mise-go-{{file_hash}}"
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-ci-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            go-ci-${{ runner.os }}-
+
+      - name: Check
+        run: mise run check
+
+
+  actions-version:
+    name: Check Action Versions
+    runs-on: ubuntu-latest
+    env:
+      MISE_TASK_RUN_AUTO_INSTALL: "false"
+      MISE_LOCKED: "1"
+      MISE_ENV: "ci"
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          install_args: pinact
+          add_shims_to_path: true
+          cache_key: "mise-actioncheck-{{install_args_hash}}-{{file_hash}}"
+
+      - name: Check Action pinned versions
+        env:
+          PINACT_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: mise run actions:pin:check
+
+      - name: Check whether Action is outdated
+        env:
+          PINACT_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: mise run actions:outdated
+
+  audit:
+    name: Audit
+    runs-on: ubuntu-latest
+    env:
+      MISE_TASK_RUN_AUTO_INSTALL: "false"
+      MISE_ENV: "ci"
+      MISE_LOCKED: "1"
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          add_shims_to_path: true
+          install_args: 'go "go:golang.org/x/vuln/cmd/govulncheck"'
+          cache_key: "mise-vulncheck-{{install_args_hash}}-{{file_hash}}"
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: go-audit-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            go-audit-${{ runner.os }}-
+
+      - name: Verify dependencies
+        run: mise run mod:verify
+
+      - name: Go Vulnerability Check
+        run: mise run vuln:check
+
+  docs:
+    name: Docs
+    runs-on: ubuntu-latest
+    env:
+      MISE_TASK_RUN_AUTO_INSTALL: "false"
+      MISE_LOCKED: "1"
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          install_args: node pnpm
+          add_shims_to_path: true
+          cache_key: "mise-docs-{{install_args_hash}}-{{file_hash}}"
+
+      - name: Resolve pnpm store path
+        id: pnpm-store
+        run: echo "path=$(pnpm store path --silent)" >> "${GITHUB_OUTPUT}"
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: pnpm-${{ runner.os }}-${{ hashFiles('docs/pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-${{ runner.os }}-
+
+      - name: Build
+        run: mise run docs:build

@@ -1,0 +1,153 @@
+[settings]
+lockfile = true
+env_shell_expand = true
+minimum_release_age = "3d"
+
+[tools]
+# https://go.dev/
+go = "1"
+# https://nodejs.org/
+node = "26"
+# https://pnpm.io/
+pnpm = "11"
+# https://golangci-lint.run/
+golangci-lint = "2"
+# https://github.com/suzuki-shunsuke/nllint
+"go:github.com/suzuki-shunsuke/nllint/cmd/nllint" = "1"
+# https://github.com/suzuki-shunsuke/pinact
+pinact = "4"
+# https://github.com/crate-ci/typos
+typos = "1"
+betterleaks = "1"
+actionlint = "1"
+git-cliff = "latest"
+
+[env]
+# the minimum release age of github actions in days
+PINACT_MIN_AGE = "3"
+PINACT_GITHUB_TOKEN = { value = "${MISE_GITHUB_TOKEN:-}", redact = true }
+
+[tasks."mod:tidy"]
+description = "Tidy Go module dependencies"
+run = "go mod tidy"
+
+[tasks."mod:tidy:check"]
+description = "Check whether Go module dependencies are tidy"
+run = "go mod tidy -diff"
+
+[tasks."deps:update"]
+description = "Update Go dependencies and tidy modules"
+run = "go get -u ./... && go mod tidy"
+
+[tasks.test]
+description = "Run Go tests"
+run = "go test -v ./..."
+
+[tasks."fmt:check"]
+description = "Check Go code formatting"
+raw = true
+run = "golangci-lint fmt -E gofmt --diff"
+
+[tasks."fmt:fix"]
+description = "Fix Go code formatting"
+raw = true
+run = "golangci-lint fmt -E gofmt"
+
+[tasks.lint]
+description = "Run Go lint checks"
+raw = true
+run = "golangci-lint run -E asciicheck"
+
+[tasks."leaks:check"]
+description = "Run betterleaks checks"
+run = "betterleaks git --redact --no-banner"
+
+[tasks."typos:check"]
+description = "Run Typos Lint"
+run = "typos"
+
+[tasks."typos:fix"]
+description = "Fix Typos Lint"
+run = "typos --write-changes"
+
+[tasks."newline:fix"]
+description = "Fix Newline Lint issues"
+run = "git ls-files | xargs nllint --fix --trim-space"
+
+[tasks."newline:check"]
+description = "Check Newline Lint issues"
+run = "git ls-files | xargs nllint --trim-space"
+
+[tasks.check]
+description = """
+Run read-only checks for Go modules, newlines, typos, formatting, GitHub Actions, lint, build, and tests"""
+run = [
+  { tasks = [ "mod:tidy:check", "newline:check", "typos:check", "build:check" ] },
+  { task = "leaks:check" },
+  { task = "actions:check" },
+  { task = "lint" },
+  { task = "test" }
+]
+alias = "c"
+
+[tasks.fix]
+description = "Fix Go modules, newlines, typos, and formatting"
+run = [
+  { task = "mod:tidy" },
+  { task = "newline:fix" },
+  { task = "typos:fix" },
+  { task = "fmt:fix" }
+]
+alias = "f"
+
+[tasks.cli]
+description = "Run the CLI"
+run = "go run ./cmd/bwsshntfr"
+
+[tasks.'cli:install']
+description = "Install the CLI into the local Go bin directory"
+run = 'go install -trimpath -ldflags="-X main.version=${BUILD_VERSION:-dev}" ./cmd/bwsshntfr'
+
+[tasks.build]
+description = "Build the CLI executable"
+run = 'go build -trimpath -ldflags="-s -w -X main.version=${BUILD_VERSION:-dev}" -o "${BUILD_OUTPUT_DIR:-bin}/" ./cmd/bwsshntfr'
+
+[tasks."build:check"]
+description = "Check whether the CLI builds"
+run = "go test -run '^$' ./cmd/..."
+
+[tasks."actions:check"]
+description = "Run actionlint"
+depends = ["actions:pin-offline:check"]
+run = "actionlint"
+
+[tasks.'actions:update']
+description = "Update GitHub Action versions and pin to commit hashes"
+run = "pinact run --update"
+
+[tasks.'actions:pin-offline:check']
+description = "Check GitHub Action versions and pin to commit hashes"
+run = "unset PINACT_MIN_AGE && pinact run --fix=false --no-api"
+
+[tasks.'docs:install']
+description = "Install documentation site dependencies"
+dir = "docs"
+run = "pnpm install"
+
+[tasks.'docs:dev']
+description = "Start the VitePress documentation site"
+depends = ["docs:install"]
+dir = "docs"
+run = "pnpm dev"
+
+[tasks.'docs:build']
+description = "Build the VitePress documentation site"
+depends = ["docs:install"]
+dir = "docs"
+run = "pnpm build"
+
+[tasks.'docs:preview']
+description = "Preview the VitePress documentation site"
+depends = ["docs:install"]
+dir = "docs"
+run = "pnpm preview"
