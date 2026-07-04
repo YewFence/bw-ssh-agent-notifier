@@ -58,7 +58,8 @@ func addConfigFlags(cmd *cobra.Command, cfg *config.Config) {
 	flags.StringVar(&cfg.ListenSocket, "listen", cfg.ListenSocket, "wrapper Unix socket path (env: WRAPPER_SSH_AGENT_SOCKET)")
 	flags.StringVar(&cfg.UpstreamSocket, "upstream", cfg.UpstreamSocket, "Bitwarden SSH agent Unix socket path (env: BITWARDEN_SSH_AGENT_SOCKET)")
 	flags.StringVar(&cfg.NotifyBackend, "notify", cfg.NotifyBackend, "notification backend: dbus or off (env: WRAPPER_NOTIFY_BACKEND)")
-	flags.DurationVar(&cfg.NotifyTimeout, "notify-timeout", cfg.NotifyTimeout, "notification timeout (env: WRAPPER_NOTIFY_TIMEOUT)")
+	flags.DurationVar(&cfg.NotifyCallTimeout, "notify-call-timeout", cfg.NotifyCallTimeout, "notification D-Bus call timeout (env: WRAPPER_NOTIFY_CALL_TIMEOUT)")
+	flags.DurationVar(&cfg.NotifyExpireTimeout, "notify-expire-timeout", cfg.NotifyExpireTimeout, "notification display timeout (env: WRAPPER_NOTIFY_EXPIRE_TIMEOUT)")
 	flags.IntVar(&cfg.ParentDepth, "parent-depth", cfg.ParentDepth, "parent process depth to inspect (env: WRAPPER_PARENT_DEPTH)")
 	flags.StringVar(&cfg.LogLevel, "log-level", cfg.LogLevel, "log level: debug, info, warn, error")
 	flags.StringVar(&cfg.LogFormat, "log-format", cfg.LogFormat, "log format: text or json")
@@ -88,7 +89,7 @@ func runProxy(ctx context.Context, cfg config.Config, logger *slog.Logger) error
 	var notifier notify.Notifier
 	notifier = notify.Noop()
 	if cfg.NotifyBackend == "dbus" {
-		notifier = notify.DBusNotifier{Timeout: cfg.NotifyTimeout}
+		notifier = notify.DBusNotifier{CallTimeout: cfg.NotifyCallTimeout, ExpireTimeout: cfg.NotifyExpireTimeout}
 	}
 	return proxy.Server{Config: cfg, Notifier: notifier, Logger: logger}.Run(ctx)
 }
@@ -137,12 +138,13 @@ func newNotifyCommand(cfg *config.Config, envErr *error) *cobra.Command {
 			if cfg.NotifyBackend == "off" {
 				return fmt.Errorf("notification backend is off")
 			}
-			notifier := notify.DBusNotifier{Timeout: cfg.NotifyTimeout}
+			notifier := notify.DBusNotifier{CallTimeout: cfg.NotifyCallTimeout, ExpireTimeout: cfg.NotifyExpireTimeout}
 			return notifier.Send(cmd.Context(), notify.Notification{Summary: summary, Body: body})
 		},
 	}
 	testCmd.Flags().StringVar(&summary, "summary", "SSH agent request", "notification summary")
 	testCmd.Flags().StringVar(&body, "body", "test notification", "notification body")
+	testCmd.Flags().DurationVar(&cfg.NotifyExpireTimeout, "expire-timeout", cfg.NotifyExpireTimeout, "notification display timeout")
 	notifyCmd.AddCommand(testCmd)
 	return notifyCmd
 }
@@ -280,7 +282,7 @@ func canNotify(ctx context.Context, cfg config.Config) error {
 	if cfg.NotifyBackend == "off" {
 		return nil
 	}
-	return notify.CheckDBus(ctx, cfg.NotifyTimeout)
+	return notify.CheckDBus(ctx, cfg.NotifyCallTimeout)
 }
 
 func canInspectSelf(parentDepth int) error {

@@ -65,12 +65,28 @@ func TestRootCommandHelpShowsEnvOverrides(t *testing.T) {
 		"WRAPPER_SSH_AGENT_SOCKET",
 		"BITWARDEN_SSH_AGENT_SOCKET",
 		"WRAPPER_NOTIFY_BACKEND",
-		"WRAPPER_NOTIFY_TIMEOUT",
+		"WRAPPER_NOTIFY_CALL_TIMEOUT",
+		"WRAPPER_NOTIFY_EXPIRE_TIMEOUT",
 		"WRAPPER_PARENT_DEPTH",
 	} {
 		if !strings.Contains(output, envName) {
 			t.Fatalf("help output missing %s:\n%s", envName, output)
 		}
+	}
+}
+
+func TestNotifyTestCommandHelpShowsExpireTimeoutFlag(t *testing.T) {
+	command := NewRootCommand("test")
+	buffer := &bytes.Buffer{}
+	command.SetOut(buffer)
+	command.SetErr(buffer)
+	command.SetArgs([]string{"notify", "test", "--help"})
+
+	if err := command.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if output := buffer.String(); !strings.Contains(output, "--expire-timeout") {
+		t.Fatalf("help output missing --expire-timeout:\n%s", output)
 	}
 }
 

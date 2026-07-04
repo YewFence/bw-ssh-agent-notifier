@@ -10,32 +10,35 @@ import (
 )
 
 const (
-	DefaultNotifyBackend = "dbus"
-	DefaultNotifyTimeout = 2 * time.Second
-	DefaultParentDepth   = 5
-	DefaultLogLevel      = "info"
-	DefaultLogFormat     = "text"
+	DefaultNotifyBackend       = "dbus"
+	DefaultNotifyCallTimeout   = 2 * time.Second
+	DefaultNotifyExpireTimeout = 4 * time.Second
+	DefaultParentDepth         = 5
+	DefaultLogLevel            = "info"
+	DefaultLogFormat           = "text"
 )
 
 type Config struct {
-	ListenSocket   string
-	UpstreamSocket string
-	NotifyBackend  string
-	NotifyTimeout  time.Duration
-	ParentDepth    int
-	LogLevel       string
-	LogFormat      string
+	ListenSocket        string
+	UpstreamSocket      string
+	NotifyBackend       string
+	NotifyCallTimeout   time.Duration
+	NotifyExpireTimeout time.Duration
+	ParentDepth         int
+	LogLevel            string
+	LogFormat           string
 }
 
 func FromEnv() (Config, error) {
 	cfg := Config{
-		ListenSocket:   defaultListenSocket(),
-		UpstreamSocket: defaultUpstreamSocket(),
-		NotifyBackend:  envString("WRAPPER_NOTIFY_BACKEND", DefaultNotifyBackend),
-		NotifyTimeout:  DefaultNotifyTimeout,
-		ParentDepth:    DefaultParentDepth,
-		LogLevel:       DefaultLogLevel,
-		LogFormat:      DefaultLogFormat,
+		ListenSocket:        defaultListenSocket(),
+		UpstreamSocket:      defaultUpstreamSocket(),
+		NotifyBackend:       envString("WRAPPER_NOTIFY_BACKEND", DefaultNotifyBackend),
+		NotifyCallTimeout:   DefaultNotifyCallTimeout,
+		NotifyExpireTimeout: DefaultNotifyExpireTimeout,
+		ParentDepth:         DefaultParentDepth,
+		LogLevel:            DefaultLogLevel,
+		LogFormat:           DefaultLogFormat,
 	}
 
 	if value := os.Getenv("BITWARDEN_SSH_AGENT_SOCKET"); value != "" {
@@ -44,12 +47,19 @@ func FromEnv() (Config, error) {
 	if value := os.Getenv("WRAPPER_SSH_AGENT_SOCKET"); value != "" {
 		cfg.ListenSocket = value
 	}
-	if value := os.Getenv("WRAPPER_NOTIFY_TIMEOUT"); value != "" {
+	if value := os.Getenv("WRAPPER_NOTIFY_CALL_TIMEOUT"); value != "" {
 		timeout, err := time.ParseDuration(value)
 		if err != nil {
-			return Config{}, fmt.Errorf("parse WRAPPER_NOTIFY_TIMEOUT: %w", err)
+			return Config{}, fmt.Errorf("parse WRAPPER_NOTIFY_CALL_TIMEOUT: %w", err)
 		}
-		cfg.NotifyTimeout = timeout
+		cfg.NotifyCallTimeout = timeout
+	}
+	if value := os.Getenv("WRAPPER_NOTIFY_EXPIRE_TIMEOUT"); value != "" {
+		timeout, err := time.ParseDuration(value)
+		if err != nil {
+			return Config{}, fmt.Errorf("parse WRAPPER_NOTIFY_EXPIRE_TIMEOUT: %w", err)
+		}
+		cfg.NotifyExpireTimeout = timeout
 	}
 	if value := os.Getenv("WRAPPER_PARENT_DEPTH"); value != "" {
 		depth, err := strconv.Atoi(value)
@@ -74,8 +84,11 @@ func (cfg Config) Validate() error {
 	default:
 		return fmt.Errorf("unsupported notify backend %q", cfg.NotifyBackend)
 	}
-	if cfg.NotifyTimeout <= 0 {
-		return errors.New("notify timeout must be positive")
+	if cfg.NotifyCallTimeout <= 0 {
+		return errors.New("notify call timeout must be positive")
+	}
+	if cfg.NotifyExpireTimeout <= 0 {
+		return errors.New("notify expire timeout must be positive")
 	}
 	if cfg.ParentDepth < 0 {
 		return errors.New("parent depth must not be negative")

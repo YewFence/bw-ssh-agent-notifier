@@ -12,7 +12,8 @@ func TestFromEnv(t *testing.T) {
 	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
 	t.Setenv("HOME", home)
 	t.Setenv("WRAPPER_NOTIFY_BACKEND", "off")
-	t.Setenv("WRAPPER_NOTIFY_TIMEOUT", "3s")
+	t.Setenv("WRAPPER_NOTIFY_CALL_TIMEOUT", "3s")
+	t.Setenv("WRAPPER_NOTIFY_EXPIRE_TIMEOUT", "7s")
 	t.Setenv("WRAPPER_PARENT_DEPTH", "2")
 
 	cfg, err := FromEnv()
@@ -28,8 +29,11 @@ func TestFromEnv(t *testing.T) {
 	if cfg.NotifyBackend != "off" {
 		t.Fatalf("NotifyBackend = %q", cfg.NotifyBackend)
 	}
-	if cfg.NotifyTimeout != 3*time.Second {
-		t.Fatalf("NotifyTimeout = %s", cfg.NotifyTimeout)
+	if cfg.NotifyCallTimeout != 3*time.Second {
+		t.Fatalf("NotifyCallTimeout = %s", cfg.NotifyCallTimeout)
+	}
+	if cfg.NotifyExpireTimeout != 7*time.Second {
+		t.Fatalf("NotifyExpireTimeout = %s", cfg.NotifyExpireTimeout)
 	}
 	if cfg.ParentDepth != 2 {
 		t.Fatalf("ParentDepth = %d", cfg.ParentDepth)
@@ -38,13 +42,14 @@ func TestFromEnv(t *testing.T) {
 
 func TestValidateRejectsUnsupportedNotifyBackend(t *testing.T) {
 	cfg := Config{
-		ListenSocket:   "/tmp/listen.sock",
-		UpstreamSocket: "/tmp/upstream.sock",
-		NotifyBackend:  "notify-send",
-		NotifyTimeout:  time.Second,
-		ParentDepth:    1,
-		LogLevel:       DefaultLogLevel,
-		LogFormat:      DefaultLogFormat,
+		ListenSocket:        "/tmp/listen.sock",
+		UpstreamSocket:      "/tmp/upstream.sock",
+		NotifyBackend:       "notify-send",
+		NotifyCallTimeout:   time.Second,
+		NotifyExpireTimeout: time.Second,
+		ParentDepth:         1,
+		LogLevel:            DefaultLogLevel,
+		LogFormat:           DefaultLogFormat,
 	}
 	if err := cfg.Validate(); err == nil {
 		t.Fatalf("Validate() error = nil, want error")

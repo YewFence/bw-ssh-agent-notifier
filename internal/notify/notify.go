@@ -28,24 +28,29 @@ func (noopNotifier) Send(context.Context, Notification) error {
 }
 
 type DBusNotifier struct {
-	AppName string
-	Timeout time.Duration
+	AppName       string
+	CallTimeout   time.Duration
+	ExpireTimeout time.Duration
 }
 
 func (notifier DBusNotifier) Send(ctx context.Context, notification Notification) error {
 	if notification.Summary == "" {
 		return errors.New("notification summary is required")
 	}
-	timeout := notifier.Timeout
-	if timeout <= 0 {
-		timeout = 2 * time.Second
+	callTimeout := notifier.CallTimeout
+	if callTimeout <= 0 {
+		callTimeout = 2 * time.Second
+	}
+	expireTimeout := notifier.ExpireTimeout
+	if expireTimeout <= 0 {
+		expireTimeout = 2 * time.Second
 	}
 	appName := notifier.AppName
 	if appName == "" {
-		appName = "bwsshntfr"
+		appName = "Bitwarden SSH Agent Notifier"
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	ctx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
 
 	conn, err := dbus.SessionBusPrivate(dbus.WithContext(ctx))
@@ -74,7 +79,7 @@ func (notifier DBusNotifier) Send(ctx context.Context, notification Notification
 		notification.Body,
 		[]string{},
 		map[string]dbus.Variant{},
-		int32(timeout/time.Millisecond),
+		int32(expireTimeout/time.Millisecond),
 	)
 	return call.Err
 }

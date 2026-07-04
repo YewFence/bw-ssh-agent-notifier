@@ -52,13 +52,14 @@ func TestServerProxiesBytes(t *testing.T) {
 	logBuffer := &bytes.Buffer{}
 	server := Server{
 		Config: config.Config{
-			ListenSocket:   listenPath,
-			UpstreamSocket: upstreamPath,
-			NotifyBackend:  "off",
-			NotifyTimeout:  time.Second,
-			ParentDepth:    1,
-			LogLevel:       config.DefaultLogLevel,
-			LogFormat:      config.DefaultLogFormat,
+			ListenSocket:        listenPath,
+			UpstreamSocket:      upstreamPath,
+			NotifyBackend:       "off",
+			NotifyCallTimeout:   time.Second,
+			NotifyExpireTimeout: time.Second,
+			ParentDepth:         1,
+			LogLevel:            config.DefaultLogLevel,
+			LogFormat:           config.DefaultLogFormat,
 		},
 		Notifier: notify.Noop(),
 		Logger:   slog.New(slog.NewTextHandler(logBuffer, nil)),
