@@ -1,0 +1,15 @@
+[Unit]
+Description=Bitwarden SSH Agent Notifier
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/bwsshntfr
+Restart=on-failure
+RestartSec=2s
+# Override the upstream socket by uncommenting the next line and setting the path.
+# If SSH_AUTH_SOCK is set when this service is generated, it is written here automatically.
+# Environment=BITWARDEN_SSH_AGENT_SOCKET=$HOME/.var/app/com.bitwarden.desktop/data/.bitwarden-ssh-agent.sock
+
+[Install]
+WantedBy=default.target
