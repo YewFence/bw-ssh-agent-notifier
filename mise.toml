@@ -109,8 +109,18 @@ description = "Install the CLI into the local Go bin directory"
 run = 'go install -trimpath -ldflags="-X main.version=${BUILD_VERSION:-dev}" ./cmd/bwsshntfr'
 
 [tasks.build]
-description = "Build the CLI executable"
-run = 'go build -trimpath -ldflags="-s -w -X main.version=${BUILD_VERSION:-dev}" -o "${BUILD_OUTPUT_DIR:-bin}/" ./cmd/bwsshntfr'
+description = "Build the Linux CLI executable"
+run = '''
+target_goos="${GOOS:-$(go env GOOS)}"
+case "${target_goos}" in
+  darwin|windows)
+    echo "building ${target_goos} artifacts is disabled"
+    exit 1
+    ;;
+esac
+
+go build -trimpath -ldflags="-s -w -X main.version=${BUILD_VERSION:-dev}" -o "${BUILD_OUTPUT_DIR:-bin}/" ./cmd/bwsshntfr
+'''
 
 [tasks."build:check"]
 description = "Check whether the CLI builds"

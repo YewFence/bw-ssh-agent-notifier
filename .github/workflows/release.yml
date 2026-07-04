@@ -221,12 +221,6 @@ jobs:
             goarch: amd64
           - goos: linux
             goarch: arm64
-          - goos: darwin
-            goarch: amd64
-          - goos: darwin
-            goarch: arm64
-          - goos: windows
-            goarch: amd64
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -263,7 +257,6 @@ jobs:
       - name: Package artifact
         env:
           ARTIFACT_NAME: ${{ needs.version.outputs.tag }}-${{ matrix.goos }}-${{ matrix.goarch }}
-          ARTIFACT_EXT: ${{ matrix.goos == 'windows' && 'zip' || 'tar.gz' }}
         run: |
           binary_path="$(find dist -maxdepth 1 -type f ! -name '*.tar.gz' ! -name '*.zip' -print -quit)"
           if [[ -z "${binary_path}" ]]; then
@@ -272,11 +265,7 @@ jobs:
           fi
           binary_name="$(basename "${binary_path}")"
 
-          if [[ "${ARTIFACT_EXT}" == "zip" ]]; then
-            (cd dist && zip -j "${ARTIFACT_NAME}.zip" "${binary_name}")
-          else
-            tar -C dist -czf "dist/${ARTIFACT_NAME}.tar.gz" "${binary_name}"
-          fi
+          tar -C dist -czf "dist/${ARTIFACT_NAME}.tar.gz" "${binary_name}"
 
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
