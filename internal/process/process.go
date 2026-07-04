@@ -118,7 +118,7 @@ func ProcessChain(summary Summary, parents []Summary) string {
 
 func CompactProcessChain(summary Summary, parents []Summary) string {
 	names := processChainNames(summary, parents)
-	compactNames := names[:1]
+	compactNames := []string{names[0]}
 	for _, name := range names[1:] {
 		if isTerminalProcess(name) || isSessionProcess(name) {
 			break
@@ -164,7 +164,7 @@ func isTerminalProcess(name string) bool {
 
 func isSessionProcess(name string) bool {
 	switch strings.ToLower(name) {
-	case "systemd", "init", "dbus-daemon", "dbus-broker", "gnome-session-binary", "startplasma-wayland", "startplasma-x11":
+	case "systemd", "init", "dbus-daemon", "dbus-broker", "gnome-session-binary", "startplasma-wayland", "startplasma-x11", "tmux", "tmux: server", "screen":
 		return true
 	default:
 		return false

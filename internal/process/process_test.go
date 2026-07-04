@@ -82,3 +82,29 @@ func TestCompactProcessChainStopsBeforeSessionProcess(t *testing.T) {
 		t.Fatalf("CompactProcessChain() = %q, want ssh <- git", chain)
 	}
 }
+
+func TestCompactProcessChainStopsBeforeTerminalMultiplexer(t *testing.T) {
+	tests := []struct {
+		name   string
+		parent Summary
+	}{
+		{name: "tmux", parent: Summary{PID: 3, Exe: "/usr/bin/tmux"}},
+		{name: "screen", parent: Summary{PID: 3, Exe: "/usr/bin/screen"}},
+		{name: "tmux server", parent: Summary{PID: 3, Cmdline: []string{"tmux: server"}}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			chain := CompactProcessChain(
+				Summary{PID: 1, Exe: "/usr/bin/ssh"},
+				[]Summary{
+					{PID: 2, Exe: "/usr/bin/git"},
+					tt.parent,
+				},
+			)
+			if chain != "ssh <- git" {
+				t.Fatalf("CompactProcessChain() = %q, want ssh <- git", chain)
+			}
+		})
+	}
+}

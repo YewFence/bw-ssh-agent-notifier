@@ -137,12 +137,12 @@ func (server Server) logClient(ctx context.Context, notifier notify.Notifier, lo
 }
 
 func notificationBody(info process.Info, fullTree bool) string {
-	clientName := process.ProcessName(process.Summary{PID: info.PID, Exe: info.Exe, Cmdline: info.Cmdline})
+	client := process.Summary{PID: info.PID, Exe: info.Exe, Cmdline: info.Cmdline}
+	clientName := process.ProcessName(client)
 	body := fmt.Sprintf("%s is using Bitwarden SSH agent\nPID %d", clientName, info.PID)
 	if info.Exe != "" {
 		body = fmt.Sprintf("%s · %s", body, info.Exe)
 	}
-	client := process.Summary{PID: info.PID, Exe: info.Exe, Cmdline: info.Cmdline}
 	chain := process.CompactProcessChain(client, info.Parents)
 	if fullTree {
 		chain = process.ProcessChain(client, info.Parents)
