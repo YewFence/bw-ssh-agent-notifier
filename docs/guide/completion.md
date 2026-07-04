@@ -8,10 +8,10 @@ After building the binary, use the `completion` subcommand to generate completio
 
 ```bash
 mise run build
-./bin/bwsshntfr completion zsh > _bwsshntfr
-./bin/bwsshntfr completion bash > bwsshntfr.bash
-./bin/bwsshntfr completion fish > bwsshntfr.fish
-./bin/bwsshntfr completion powershell > bwsshntfr.ps1
+bwsshntfr completion zsh > _bwsshntfr
+bwsshntfr completion bash > bwsshntfr.bash
+bwsshntfr completion fish > bwsshntfr.fish
+bwsshntfr completion powershell > bwsshntfr.ps1
 ```
 
 ## Installation Examples
@@ -20,7 +20,7 @@ For Zsh, place the generated `_bwsshntfr` file in an existing directory from `$f
 
 ```bash
 mkdir -p ~/.zsh/completions
-./bin/bwsshntfr completion zsh > ~/.zsh/completions/_bwsshntfr
+bwsshntfr completion zsh > ~/.zsh/completions/_bwsshntfr
 ```
 
 ```zsh
@@ -33,7 +33,7 @@ For Bash, place the completion script in a local directory and source it manuall
 
 ```bash
 mkdir -p ~/.bash_completion.d
-./bin/bwsshntfr completion bash > ~/.bash_completion.d/bwsshntfr.bash
+bwsshntfr completion bash > ~/.bash_completion.d/bwsshntfr.bash
 source ~/.bash_completion.d/bwsshntfr.bash
 ```
 
@@ -41,5 +41,5 @@ For Fish, write the script directly to the user completion directory.
 
 ```bash
 mkdir -p ~/.config/fish/completions
-./bin/bwsshntfr completion fish > ~/.config/fish/completions/bwsshntfr.fish
+bwsshntfr completion fish > ~/.config/fish/completions/bwsshntfr.fish
 ```
