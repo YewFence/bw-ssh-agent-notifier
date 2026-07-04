@@ -55,11 +55,11 @@ func Execute(version string) {
 
 func addConfigFlags(cmd *cobra.Command, cfg *config.Config) {
 	flags := cmd.PersistentFlags()
-	flags.StringVar(&cfg.ListenSocket, "listen", cfg.ListenSocket, "wrapper Unix socket path")
-	flags.StringVar(&cfg.UpstreamSocket, "upstream", cfg.UpstreamSocket, "Bitwarden SSH agent Unix socket path")
-	flags.StringVar(&cfg.NotifyBackend, "notify", cfg.NotifyBackend, "notification backend: dbus or off")
-	flags.DurationVar(&cfg.NotifyTimeout, "notify-timeout", cfg.NotifyTimeout, "notification timeout")
-	flags.IntVar(&cfg.ParentDepth, "parent-depth", cfg.ParentDepth, "parent process depth to inspect")
+	flags.StringVar(&cfg.ListenSocket, "listen", cfg.ListenSocket, "wrapper Unix socket path (env: WRAPPER_SSH_AGENT_SOCKET)")
+	flags.StringVar(&cfg.UpstreamSocket, "upstream", cfg.UpstreamSocket, "Bitwarden SSH agent Unix socket path (env: BITWARDEN_SSH_AGENT_SOCKET)")
+	flags.StringVar(&cfg.NotifyBackend, "notify", cfg.NotifyBackend, "notification backend: dbus or off (env: WRAPPER_NOTIFY_BACKEND)")
+	flags.DurationVar(&cfg.NotifyTimeout, "notify-timeout", cfg.NotifyTimeout, "notification timeout (env: WRAPPER_NOTIFY_TIMEOUT)")
+	flags.IntVar(&cfg.ParentDepth, "parent-depth", cfg.ParentDepth, "parent process depth to inspect (env: WRAPPER_PARENT_DEPTH)")
 	flags.StringVar(&cfg.LogLevel, "log-level", cfg.LogLevel, "log level: debug, info, warn, error")
 	flags.StringVar(&cfg.LogFormat, "log-format", cfg.LogFormat, "log format: text or json")
 }

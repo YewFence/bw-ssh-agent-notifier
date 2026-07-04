@@ -50,6 +50,30 @@ func TestRootCommandCompletion(t *testing.T) {
 	}
 }
 
+func TestRootCommandHelpShowsEnvOverrides(t *testing.T) {
+	command := NewRootCommand("test")
+	buffer := &bytes.Buffer{}
+	command.SetOut(buffer)
+	command.SetErr(buffer)
+	command.SetArgs([]string{"--help"})
+
+	if err := command.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	output := buffer.String()
+	for _, envName := range []string{
+		"WRAPPER_SSH_AGENT_SOCKET",
+		"BITWARDEN_SSH_AGENT_SOCKET",
+		"WRAPPER_NOTIFY_BACKEND",
+		"WRAPPER_NOTIFY_TIMEOUT",
+		"WRAPPER_PARENT_DEPTH",
+	} {
+		if !strings.Contains(output, envName) {
+			t.Fatalf("help output missing %s:\n%s", envName, output)
+		}
+	}
+}
+
 func TestVersionCommand(t *testing.T) {
 	command := NewRootCommand("test")
 	buffer := &bytes.Buffer{}
