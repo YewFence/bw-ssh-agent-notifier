@@ -100,3 +100,65 @@ else
   git tag -a "${tag}" -m "Release ${tag}"
 fi
 """
+
+[tasks.'release:package']
+description = "Package the built CLI artifact for a release"
+shell = "bash -c"
+run = """
+artifact_dir="${RELEASE_ARTIFACT_DIR:-${BUILD_OUTPUT_DIR:-dist}}"
+tag="${RELEASE_TAG:-}"
+if [[ -z "${tag}" ]]; then
+  tag="$(mise run release:tag)"
+fi
+
+if [[ -z "${GOOS:-}" ]]; then
+  echo "GOOS must be set"
+  exit 1
+fi
+if [[ -z "${GOARCH:-}" ]]; then
+  echo "GOARCH must be set"
+  exit 1
+fi
+
+binary_path=""
+binary_count=0
+while IFS= read -r candidate; do
+  binary_count="$((binary_count + 1))"
+  if [[ -z "${binary_path}" ]]; then
+    binary_path="${candidate}"
+  fi
+done < <(find "${artifact_dir}" -maxdepth 1 -type f ! -name '*.tar.gz' ! -name '*.zip' -print | sort)
+
+if [[ "${binary_count}" -eq 0 ]]; then
+  echo "No build artifact was found in ${artifact_dir}"
+  exit 1
+fi
+if [[ "${binary_count}" -gt 1 ]]; then
+  echo "Expected exactly one build artifact in ${artifact_dir}, found ${binary_count}"
+  find "${artifact_dir}" -maxdepth 1 -type f ! -name '*.tar.gz' ! -name '*.zip' -print | sort | sed 's/^/  /'
+  exit 1
+fi
+
+binary_name="$(basename "${binary_path}")"
+package_name="${binary_name%.exe}-${tag}-${GOOS}-${GOARCH}"
+artifact_ext="${RELEASE_ARTIFACT_EXT:-}"
+if [[ -z "${artifact_ext}" ]]; then
+  artifact_ext="tar.gz"
+  if [[ "${GOOS}" == "windows" ]]; then
+    artifact_ext="zip"
+  fi
+fi
+
+case "${artifact_ext}" in
+  zip)
+    (cd "${artifact_dir}" && zip -j "${package_name}.zip" "${binary_name}")
+    ;;
+  tar.gz)
+    tar -C "${artifact_dir}" -czf "${artifact_dir}/${package_name}.tar.gz" "${binary_name}"
+    ;;
+  *)
+    echo "Unsupported release artifact extension ${artifact_ext}"
+    exit 1
+    ;;
+esac
+"""
