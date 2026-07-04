@@ -1,4 +1,18 @@
 ## What's Changed in 0.1.0
+* chore(gomod-deps): update module golang.org/x/sys to v0.46.0 by @renovate[bot] in [#3](https://github.com/YewFence/bw-ssh-agent-notifier/pull/3)
+* feat(notify): add option to show full process tree in notifications by @YewFence in [#1](https://github.com/YewFence/bw-ssh-agent-notifier/pull/1)
+* rebrand as bw-ssh-agent-notifier and expand documentation by @YewFence
+* split notify timeout into call and expire timeouts by @YewFence
+* add environment variable hints to flag help text by @YewFence
+* implement core SSH agent wrapper functionality by @YewFence
+* add DESIGN.md by @YewFence
+* init project via https://github.com/YewFence/go-cli-template by @YewFence
+
+### New Contributors
+* @renovate[bot] made their first contribution in [#3](https://github.com/YewFence/bw-ssh-agent-notifier/pull/3)
+* @YewFence made their first contribution in [#1](https://github.com/YewFence/bw-ssh-agent-notifier/pull/1)
+
+## What's Changed in 0.1.0
 * document required GitHub repository settings after project generation by @YewFence
 * fix changelog change detection by @YewFence
 * remove blob:none filter and set bash shell for release tasks by @YewFence
