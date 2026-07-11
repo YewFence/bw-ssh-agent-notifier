@@ -1,3 +1,12 @@
+## What's Changed in 0.1.1
+* chore(gomod-deps): update module golang.org/x/sys to v0.47.0 by @renovate[bot] in [#9](https://github.com/YewFence/bw-ssh-agent-notifier/pull/9)
+* chore(go-deps): update dependency go to v1.26.5 by @renovate[bot] in [#10](https://github.com/YewFence/bw-ssh-agent-notifier/pull/10)
+* improve README observability section and clarify wording by @YewFence
+* extract package artifact logic into mise task by @YewFence
+* chore(mise-deps): update mise tools by @renovate[bot] in [#4](https://github.com/YewFence/bw-ssh-agent-notifier/pull/4)
+
+**Full Changelog**: https://github.com/YewFence/bw-ssh-agent-notifier/compare/v0.1.0...v0.1.1
+
 ## What's Changed in 0.1.0
 * drop support for darwin and windows builds by @YewFence
 * chore: release v0.1.0 by @github-actions[bot] in [#2](https://github.com/YewFence/bw-ssh-agent-notifier/pull/2)
