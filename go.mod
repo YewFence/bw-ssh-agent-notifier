@@ -1,6 +1,6 @@
 module github.com/YewFence/bw-ssh-agent-notifier
 
-go 1.26.4
+go 1.26.5
 
 require (
 	github.com/godbus/dbus/v5 v5.2.2
