@@ -11,7 +11,7 @@ bw-ssh-agent-notifier is a small Linux desktop helper that shows which local pro
 
 ## What it does
 
-Bitwarden Desktop Flatpak can act as an SSH agent, but the Flatpak sandbox cannot always identify the host-side process that triggered an authorization request. As a result, Bitwarden may show `Unknown application` in the authorization popup.
+Bitwarden Desktop Flatpak can act as an SSH agent, but the Flatpak sandbox cannot identify the host-side process that triggered an authorization request. As a result, Bitwarden always shows `Unknown application` in the authorization popup.
 
 bw-ssh-agent-notifier does not replace Bitwarden authorization. It runs in front of the Bitwarden SSH agent and adds local observability:
 
@@ -26,7 +26,7 @@ bw-ssh-agent-notifier does not replace Bitwarden authorization. It runs in front
 
 bw-ssh-agent-notifier is intentionally small. It does not parse the SSH agent protocol, approve or reject SSH agent requests, implement allow lists or deny lists, or change Bitwarden, Flatpak, OpenSSH, or desktop environment configuration.
 
-Authorization still happens in Bitwarden. bw-ssh-agent-notifier only helps show which local process is using the agent before the request reaches Bitwarden. It also cannot pass the real application name into Bitwarden, because the SSH agent protocol does not include that field.
+Authorization still happens in Bitwarden. bw-ssh-agent-notifier only helps show which local process is using the agent when the request reaches Bitwarden. It also cannot pass the real application name into Bitwarden, because the SSH agent protocol does not include that field.
 
 ## Quick Start
 
@@ -71,8 +71,6 @@ If you see your Bitwarden SSH keys listed and a desktop notification appears, th
 
 ### Install as user service (Recommended)
 
-The systemd user service template lives in [`internal/systemd/bitwarden-ssh-agent-wrapper.service`](internal/systemd/bitwarden-ssh-agent-wrapper.service).
-
 ```bash
 mkdir -p "$HOME/.config/systemd/user"
 bwsshntfr systemd print-user-service > "$HOME/.config/systemd/user/bw-ssh-agent-notifier.service"
@@ -86,10 +84,29 @@ Then point SSH clients at the wrapper socket.
 export SSH_AUTH_SOCK="$XDG_RUNTIME_DIR/bitwarden-ssh-agent-wrapper.sock"
 ```
 
-If `bwsshntfr` is installed with mise, the service can avoid embedding the current absolute binary path by changing `ExecStart` to use mise.
+For advanced users, you can copy the service template in [`internal/systemd/bitwarden-ssh-agent-wrapper.service`](internal/systemd/bitwarden-ssh-agent-wrapper.service) and edit it manually.
 
-```ini
-ExecStart=mise x -- bwsshntfr
+### Observe SSH agent usage
+
+When a local process connects to the wrapper socket, you will see a desktop notification like this:
+
+```text
+SSH agent request
+ssh-add is using Bitwarden SSH agent
+PID 44746 · /usr/bin/ssh-add
+Process tree ssh-add <- zsh
+```
+
+You can also audit the usage in journalctl:
+
+```bash
+journalctl --user -u bw-ssh-agent-notifier.service
+```
+
+Output example:
+
+```text
+time=<timestamp> level=INFO msg="ssh agent client connected" client_pid=271175 client_uid=1000 client_gid=1000 upstream_socket=/home/yewfence/.var/app/com.bitwarden.desktop/data/.bitwarden-ssh-agent.sock client_exe=/usr/bin/ssh-add client_cmdline="ssh-add -l" parent_chain="zsh <- ghostty <- systemd <- systemd"
 ```
 
 ## Documentation
