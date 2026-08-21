@@ -36,6 +36,28 @@ Notification call timeout determines how long to wait for a D-Bus response. Noti
 
 Notification failures are logged and do not block forwarding.
 
+## Gate
+
+The gate is an opt-in mode that intercepts every signature request and waits for an allow or deny decision from a controller such as `bwsshntfr gate`. See the [gate guide](/guide/gate) for the full behavior.
+
+| Setting | Flag | Environment variable | Default |
+| --- | --- | --- | --- |
+| Gate mode | `--gate` | `WRAPPER_GATE` | `off` |
+| Decision timeout | `--gate-timeout` | `WRAPPER_GATE_TIMEOUT` | `60s` |
+| Default remember TTL | `--gate-remember-ttl` | `WRAPPER_GATE_REMEMBER_TTL` | `1m` |
+| Control socket | `--control-socket` | `WRAPPER_CONTROL_SOCKET` | `$XDG_RUNTIME_DIR/bitwarden-ssh-agent-wrapper-control.sock` |
+
+Supported gate modes:
+
+| Value | Behavior |
+| --- | --- |
+| `off` | Transparent forwarding with notifications only. No SSH agent protocol parsing. |
+| `confirm` | Intercept `SSH_AGENTC_SIGN_REQUEST`; every other request type is forwarded, and key management requests are always rejected. |
+
+The gate fails closed: with no controller connected, or when no decision arrives within the decision timeout, the signature is denied and a desktop notification explains the reason.
+
+The remember TTL is a fixed, non-renewing window applied when you allow a request with `m` in the TUI. A remembered decision replays silently for the same key and the same normalized process chain. Set `0` to disable remembering entirely.
+
 ## Process Inspection
 
 | Setting | Flag | Environment variable | Default |

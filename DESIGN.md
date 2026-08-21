@@ -4,6 +4,8 @@
 
 Bitwarden Desktop Flatpak 作为 SSH agent 时，因为沙盒内无法可靠读取宿主侧调用进程信息，授权弹窗里的应用名称会显示为 `Unknown application`。这个 wrapper 不尝试替代 Bitwarden 的授权，也不尝试修改 SSH agent 协议，只在 Bitwarden agent 前面加一层本机代理，用于记录真实调用方信息并发送桌面通知。
 
+另一个动机：Bitwarden 的授权弹窗可以被设置为「记住本次决定」，之后同类请求不再询问——这正是手滑（例如 `jj git push -b main` 敲错分支）漏过去的时候。wrapper 可选的门禁模式把每次签名确认拿回来，并附上 Bitwarden 给不了的调用进程归因。
+
 ## 目标
 
 1. 对外提供一个新的 Unix socket，作为用户 shell 和桌面程序使用的 `SSH_AUTH_SOCK`。
@@ -12,14 +14,16 @@ Bitwarden Desktop Flatpak 作为 SSH agent 时，因为沙盒内无法可靠读�
 4. 向 Linux 桌面发送一条通知，提示哪个进程正在访问 SSH agent。
 5. 将所有 SSH agent 协议字节透明转发到 Bitwarden Flatpak 的 agent socket。
 6. 日志输出到标准输出，由 `systemd --user` 接管，方便通过 `journalctl --user` 查看。
+7. 可选门禁模式：拦截签名请求，等待终端控制器允许或拒绝；支持带 TTL 的记忆决策与同源请求批量裁决。
 
 ## 非目标
 
-1. 不实现 SSH agent 协议解析。
-2. 不在 wrapper 内做授权确认，授权仍然交给 Bitwarden。
+1. 默认模式不解析 SSH agent 协议；门禁模式的协议处理完全委托给 `golang.org/x/crypto/ssh/agent`，不自研 wire format 解析。
+2. 金库解锁与密钥保管仍归 Bitwarden；门禁只决定「这次签名放不放行」。
 3. 不尝试把真实应用名传给 Bitwarden，因为 SSH agent 协议本身没有调用方应用名字段。
-4. 不做密钥指纹级别规则、不做允许列表、不做拒绝列表，这些可以后续扩展。
+4. 不做密钥指纹级别规则、不做可见性过滤、不做允许列表或拒绝列表，这些可以后续扩展。
 5. 不修改 Bitwarden、Flatpak 或系统 SSH 配置。
+6. 门禁防的是自己的手滑，不是恶意软件：同 uid 进程可以直连任一 socket，绕过门禁。
 
 ## 基本架构
 
@@ -113,13 +117,68 @@ PID 12345 · /usr/bin/ssh
 
 ## 转发行为
 
-wrapper 不解析 SSH agent 消息，只做透明双向复制：
+默认模式（`--gate off`）下 wrapper 不解析 SSH agent 消息，只做透明双向复制：
 
 1. 接收客户端 Unix socket 连接。
 2. 打开到 Bitwarden agent socket 的 Unix socket 连接。
 3. 启动两个 goroutine，分别执行 `client -> upstream` 和 `upstream -> client`。
 4. 任意方向结束或报错时关闭两端连接。
 5. 每个客户端连接独立处理，允许并发连接。
+
+## 门禁模式
+
+`--gate confirm` 启用门禁。每个客户端连接仍然持有独立的 upstream 连接，但客户端侧不再做字节管道，而是 `agent.ServeAgent(gate.Agent, clientConn)`；upstream 侧用 `agent.NewClient(upstreamConn)` 包装。协议解析全部由 `x/crypto/ssh/agent` 完成，wrapper 只实现 `agent.ExtendedAgent` 接口的策略：
+
+```text
+ssh / git / jj
+   | SSH_AUTH_SOCK（同一个 wrapper socket）
+   v
+agent.ServeAgent(gate.Agent)      List 透传；SignWithFlags 拦截裁决
+   |                              Add/Remove/Lock/Extension 一律 FAILURE
+   v
+agent.NewClient(upstream)
+   |
+   v
+Bitwarden sock
+```
+
+### 签名请求裁决
+
+`SignWithFlags` 组装待决请求：key 指纹（`ssh.FingerprintSHA256`）、key 注释（实时向上游 List 匹配 blob 得到，失败则只显示指纹）、客户端进程信息（peer credentials + `/proc` 检查，含父链）。请求进入待决队列并广播给所有控制器，同时发送桌面通知作为门铃（同指纹已有待决请求时不重复响）。
+
+失败策略是 fail-closed：
+
+1. 没有控制器连接时立即拒绝，并发通知说明原因。
+2. 超过 `--gate-timeout`（默认 60s）未裁决则拒绝，并发通知说明原因。
+3. daemon 关闭时未决请求按 shutdown 拒绝。
+
+### 控制通道
+
+daemon 额外监听一个控制 socket，默认 `$XDG_RUNTIME_DIR/bitwarden-ssh-agent-wrapper-control.sock`，协议为 JSON-lines：
+
+```text
+server -> controller: hello / pending / resolved / state / ok / error
+controller -> server: {"type":"decide","id":"3","decision":"allow|deny","remember_seconds":60}
+                 {"type":"list"}
+```
+
+`bwsshntfr gate` 是内置控制器，bubbletea TUI：待决列表（key 名、cmdline、PID、父链、超时倒计时、指纹），键位 `a` 允许一次、`m` 允许并记住（弹出 1m/5m/15m/自定义选择器，默认项为全局默认 TTL）、`d` 拒绝、`j/k` 选择、`q` 退出。任何实现控制协议的客户端都可以替代它。
+
+### 记忆模型
+
+记忆 key = `key 指纹 + 客户端完整 cmdline + 父链剥离包装进程后的 cmdline 序列`。剥离名单覆盖 shell、复用器（tmux/zellij/screen）、终端模拟器和会话基础设施（systemd/dbus）——它们描述「在哪跑」而非「跑什么」。效果：zellij 加减层不影响命中；`jj git push -b main` 与 `-b wrongbranch` 的分支名保留在链里，错分支一定重新询问。
+
+属性：
+
+1. 固定窗口不续期；TTL 全局默认 1m，可配，`0` 完全禁用记忆。
+2. 仅内存，daemon 重启即忘。
+3. deny 不写记忆。
+4. 记忆命中静默放行（journal 留审计日志），不发通知。
+5. 裁决时对队列中记忆 key 相同的全部待决请求生效（allow/deny 都批量），消灭连发请求的 yes-yes-yes。
+
+### 通知策略
+
+门禁模式下连接通知静默（日志保留）；只发送待决门铃与裁决结果（拒绝/超时含原因）。默认模式维持原有连接通知行为。
 
 ## systemd user service
 
@@ -176,6 +235,7 @@ journalctl --user -u bitwarden-ssh-agent-wrapper.service -f
 ```text
 bwsshntfr
   run
+  gate
   doctor
   notify
     test
@@ -196,7 +256,10 @@ bwsshntfr
 ```sh
 bwsshntfr
 bwsshntfr run
+bwsshntfr run --gate confirm
 ```
+
+`gate` 连接控制 socket，打开裁决 TUI。控制 socket 不存在时给出明确报错并提示 daemon 是否以门禁模式运行。
 
 `doctor` 只检查环境，不启动代理。检查项包括：
 
@@ -242,6 +305,10 @@ bwsshntfr systemd print-user-service
 --notify
 --notify-timeout
 --parent-depth
+--gate
+--gate-timeout
+--gate-remember-ttl
+--control-socket
 --log-level
 --log-format
 ```
@@ -260,6 +327,10 @@ flag 和环境变量映射：
 --notify          WRAPPER_NOTIFY_BACKEND
 --notify-timeout  WRAPPER_NOTIFY_TIMEOUT
 --parent-depth    WRAPPER_PARENT_DEPTH
+--gate                  WRAPPER_GATE
+--gate-timeout          WRAPPER_GATE_TIMEOUT
+--gate-remember-ttl     WRAPPER_GATE_REMEMBER_TTL
+--control-socket        WRAPPER_CONTROL_SOCKET
 ```
 
 `--notify` 使用枚举值而不是布尔值。第一版支持：
@@ -281,6 +352,10 @@ WRAPPER_SSH_AGENT_SOCKET
 WRAPPER_NOTIFY_BACKEND
 WRAPPER_NOTIFY_TIMEOUT
 WRAPPER_PARENT_DEPTH
+WRAPPER_GATE
+WRAPPER_GATE_TIMEOUT
+WRAPPER_GATE_REMEMBER_TTL
+WRAPPER_CONTROL_SOCKET
 ```
 
 默认值：
@@ -291,6 +366,10 @@ WRAPPER_SSH_AGENT_SOCKET=$XDG_RUNTIME_DIR/bitwarden-ssh-agent-wrapper.sock
 WRAPPER_NOTIFY_BACKEND=dbus
 WRAPPER_NOTIFY_TIMEOUT=2s
 WRAPPER_PARENT_DEPTH=5
+WRAPPER_GATE=off
+WRAPPER_GATE_TIMEOUT=60s
+WRAPPER_GATE_REMEMBER_TTL=1m
+WRAPPER_CONTROL_SOCKET=$XDG_RUNTIME_DIR/bitwarden-ssh-agent-wrapper-control.sock
 ```
 
 ## Go 实现建议
@@ -314,15 +393,24 @@ log/slog
 github.com/godbus/dbus/v5
 ```
 
+门禁模式使用：
+
+```text
+golang.org/x/crypto/ssh/agent   # agent 协议两头（ServeAgent / NewClient）
+github.com/charmbracelet/bubbletea  # gate 子命令的 TUI
+github.com/charmbracelet/lipgloss   # TUI 样式
+```
+
 如果需要更干净的 Linux syscall 封装，可以考虑 `golang.org/x/sys/unix`，但第一版标准库已经足够。
 
 ## 后续扩展
 
 1. 增加简单允许列表，只通知未知进程。
-2. 解析 SSH agent request，记录签名请求和 key fingerprint。
-3. 支持交互确认，但默认仍交给 Bitwarden 授权。
-4. 增加 `notify-send` fallback，方便在 D-Bus 调试困难时对比问题。
-5. 增加 socket activation，让 systemd 按需启动 wrapper。
+2. REQUEST_IDENTITIES 可见性过滤（隐藏归档 key，对齐 EnhydraV/bw-ssh-agent-filter 的能力）。
+3. deny 侧记忆（拒绝并静音一段时间）。
+4. 包装进程剥离名单开放为配置（当前硬编码集中在 `internal/process`）。
+5. 增加 `notify-send` fallback，方便在 D-Bus 调试困难时对比问题。
+6. 增加 socket activation，让 systemd 按需启动 wrapper。
 
 ## 验证步骤
 
@@ -332,3 +420,8 @@ github.com/godbus/dbus/v5
 4. 执行 `ssh-add -L`，确认 Bitwarden 授权弹窗仍出现。
 5. 查看桌面通知，确认显示调用方进程。
 6. 查看 `journalctl --user -u bitwarden-ssh-agent-wrapper.service -f`，确认日志里有 `pid`、`exe`、`cmdline` 和父进程链。
+7. 以 `--gate confirm` 重启 wrapper，打开 `bwsshntfr gate`，执行一次 `ssh` 或 `git push`：
+   - 不开 TUI 时签名立即被拒，通知说明 no-controller。
+   - 开 TUI 但不裁决，超过 gate-timeout 后被拒，通知说明 timeout。
+   - TUI 按 `a` 放行；按 `m` 选 1m，随后同命令重复执行不再询问（journal 出现 allowed by remembered decision）。
+   - 换一个分支名重复执行，重新弹出询问。

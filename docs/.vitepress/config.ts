@@ -8,6 +8,7 @@ export default defineConfig({
 
   themeConfig: {
     nav: [
+      { text: 'Gate', link: '/guide/gate' },
       { text: 'Systemd', link: '/guide/systemd' },
       { text: 'Troubleshooting', link: '/guide/troubleshooting' },
       { text: 'Reference', link: '/reference/configuration' },
@@ -19,6 +20,7 @@ export default defineConfig({
       {
         text: 'Guide',
         items: [
+          { text: 'Signature Gate', link: '/guide/gate' },
           { text: 'Systemd User Service', link: '/guide/systemd' },
           { text: 'Troubleshooting', link: '/guide/troubleshooting' },
           { text: 'Shell Completion', link: '/guide/completion' }

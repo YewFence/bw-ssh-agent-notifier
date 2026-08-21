@@ -15,9 +15,23 @@ Global configuration flags can be used on the root command and subcommands that 
 --notify
 --notify-call-timeout
 --parent-depth
+--gate
+--gate-timeout
+--gate-remember-ttl
+--control-socket
 --log-level
 --log-format
 ```
+
+## gate
+
+`gate` connects to the daemon control socket and opens the terminal UI for approving or denying signature requests. The daemon must run with `--gate confirm`.
+
+```bash
+bwsshntfr gate
+```
+
+Keys: `a` allow once, `m` allow and remember (preset picker with custom input), `d` deny, `j/k` select, `q` quit. Deciding one request also resolves every other pending request with the same key and process chain.
 
 ## doctor
 

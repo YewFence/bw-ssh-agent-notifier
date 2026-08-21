@@ -4,7 +4,7 @@
 [![Docs](https://img.shields.io/badge/docs-online-blue)](https://YewFence.github.io/bw-ssh-agent-notifier/)
 [![License](https://img.shields.io/github/license/YewFence/bw-ssh-agent-notifier)](LICENSE)
 
-bw-ssh-agent-notifier is a small Linux desktop helper that shows which local process is using the Bitwarden SSH agent. It creates a local Unix socket for `SSH_AUTH_SOCK`, records which process connects to it, sends a desktop notification, and transparently forwards SSH agent traffic to the Bitwarden agent socket.
+bw-ssh-agent-notifier is a small Linux desktop helper that shows which local process is using the Bitwarden SSH agent. It creates a local Unix socket for `SSH_AUTH_SOCK`, records which process connects to it, sends a desktop notification, and transparently forwards SSH agent traffic to the Bitwarden agent socket. An optional gate mode additionally holds every signature request until you allow or deny it from a terminal UI.
 
 > [!NOTE]
 > This project is in an early development stage. Core features may be missing, and backward compatibility is not guaranteed.
@@ -24,9 +24,9 @@ bw-ssh-agent-notifier does not replace Bitwarden authorization. It runs in front
 
 ## Boundaries
 
-bw-ssh-agent-notifier is intentionally small. It does not parse the SSH agent protocol, approve or reject SSH agent requests, implement allow lists or deny lists, or change Bitwarden, Flatpak, OpenSSH, or desktop environment configuration.
+By default bw-ssh-agent-notifier is intentionally small: it does not parse the SSH agent protocol, approve or reject requests, or change Bitwarden, Flatpak, OpenSSH, or desktop environment configuration. That changes only when you opt into the gate mode, which intercepts signature requests and asks for a decision.
 
-Authorization still happens in Bitwarden. bw-ssh-agent-notifier only helps show which local process is using the agent when the request reaches Bitwarden. It also cannot pass the real application name into Bitwarden, because the SSH agent protocol does not include that field.
+The gate is a guard against your own mistakes, such as pushing to the wrong branch, not a security barrier: any process running as the same user can connect to the sockets, so malware under your account is not stopped by it. The gate also cannot pass the real application name into Bitwarden, because the SSH agent protocol does not include that field.
 
 ## Quick Start
 
@@ -108,6 +108,28 @@ Output example:
 ```text
 time=<timestamp> level=INFO msg="ssh agent client connected" client_pid=271175 client_uid=1000 client_gid=1000 upstream_socket=/home/yewfence/.var/app/com.bitwarden.desktop/data/.bitwarden-ssh-agent.sock client_exe=/usr/bin/ssh-add client_cmdline="ssh-add -l" parent_chain="zsh <- ghostty <- systemd <- systemd"
 ```
+
+## Optional signature gate
+
+Bitwarden's own approval can be told to remember a decision and then it stops asking, which is exactly when mistakes slip through. The gate mode takes the per-use confirmation back and adds what Bitwarden cannot show: the calling process.
+
+Enable it on the daemon (the wrapper socket stays the same):
+
+```bash
+bwsshntfr run --gate confirm
+```
+
+Then open the terminal UI that approves or denies signature requests:
+
+```bash
+bwsshntfr gate
+```
+
+Every `SSH_AGENTC_SIGN_REQUEST` now waits for a decision. The UI shows the key name or fingerprint, the client command line, and the parent process chain, so `jj git push -b wrongbranch` is distinguishable from the branch you meant. Other requests, such as key listing, pass through untouched; key management operations are always rejected.
+
+The gate fails closed. If no `bwsshntfr gate` controller is connected, or a request waits longer than `--gate-timeout` (default 60s), the signature is denied and a desktop notification explains why.
+
+Pressing `m` instead of `a` allows the request and remembers the decision for a chosen TTL (default 1m, presets 1m/5m/15m, custom input). A remembered decision replays silently for the same key and the same normalized process chain — shells, multiplexers, and terminal emulators are stripped, so launching inside zellij does not invalidate the memory, but a different branch in the push command does. Memory is in-RAM only: restarting the daemon clears it, and `--gate-remember-ttl=0` disables it entirely. Deciding one request also clears every other pending request with the same key and chain, so bursts do not force you to press `y` repeatedly.
 
 ## Documentation
 
