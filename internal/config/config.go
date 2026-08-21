@@ -17,6 +17,14 @@ const (
 	DefaultParentDepth         = 5
 	DefaultLogLevel            = "info"
 	DefaultLogFormat           = "text"
+	DefaultGateMode            = GateModeOff
+	DefaultGateTimeout         = 60 * time.Second
+	DefaultGateRememberTTL     = time.Minute
+)
+
+const (
+	GateModeOff     = "off"
+	GateModeConfirm = "confirm"
 )
 
 type Config struct {
@@ -29,6 +37,10 @@ type Config struct {
 	ParentDepth         int
 	LogLevel            string
 	LogFormat           string
+	GateMode            string
+	GateTimeout         time.Duration
+	GateRememberTTL     time.Duration
+	ControlSocket       string
 }
 
 func FromEnv() (Config, error) {
@@ -42,6 +54,10 @@ func FromEnv() (Config, error) {
 		ParentDepth:         DefaultParentDepth,
 		LogLevel:            DefaultLogLevel,
 		LogFormat:           DefaultLogFormat,
+		GateMode:            envString("WRAPPER_GATE", DefaultGateMode),
+		GateTimeout:         DefaultGateTimeout,
+		GateRememberTTL:     DefaultGateRememberTTL,
+		ControlSocket:       defaultControlSocket(),
 	}
 
 	if value := os.Getenv("BITWARDEN_SSH_AGENT_SOCKET"); value != "" {
@@ -78,6 +94,23 @@ func FromEnv() (Config, error) {
 		}
 		cfg.ParentDepth = depth
 	}
+	if value := os.Getenv("WRAPPER_GATE_TIMEOUT"); value != "" {
+		timeout, err := time.ParseDuration(value)
+		if err != nil {
+			return Config{}, fmt.Errorf("parse WRAPPER_GATE_TIMEOUT: %w", err)
+		}
+		cfg.GateTimeout = timeout
+	}
+	if value := os.Getenv("WRAPPER_GATE_REMEMBER_TTL"); value != "" {
+		timeout, err := time.ParseDuration(value)
+		if err != nil {
+			return Config{}, fmt.Errorf("parse WRAPPER_GATE_REMEMBER_TTL: %w", err)
+		}
+		cfg.GateRememberTTL = timeout
+	}
+	if value := os.Getenv("WRAPPER_CONTROL_SOCKET"); value != "" {
+		cfg.ControlSocket = value
+	}
 
 	return cfg, nil
 }
@@ -113,6 +146,20 @@ func (cfg Config) Validate() error {
 	default:
 		return fmt.Errorf("unsupported log format %q", cfg.LogFormat)
 	}
+	switch cfg.GateMode {
+	case GateModeOff, GateModeConfirm:
+	default:
+		return fmt.Errorf("unsupported gate mode %q", cfg.GateMode)
+	}
+	if cfg.GateTimeout <= 0 {
+		return errors.New("gate timeout must be positive")
+	}
+	if cfg.GateRememberTTL < 0 {
+		return errors.New("gate remember TTL must not be negative")
+	}
+	if cfg.GateMode == GateModeConfirm && cfg.ControlSocket == "" {
+		return errors.New("control socket is required when gate is enabled; set XDG_RUNTIME_DIR or WRAPPER_CONTROL_SOCKET")
+	}
 	return nil
 }
 
@@ -137,4 +184,12 @@ func defaultUpstreamSocket() string {
 		return ""
 	}
 	return filepath.Join(home, ".var", "app", "com.bitwarden.desktop", "data", ".bitwarden-ssh-agent.sock")
+}
+
+func defaultControlSocket() string {
+	runtimeDir := os.Getenv("XDG_RUNTIME_DIR")
+	if runtimeDir == "" {
+		return ""
+	}
+	return filepath.Join(runtimeDir, "bitwarden-ssh-agent-wrapper-control.sock")
 }

@@ -131,6 +131,25 @@ func CompactProcessChain(summary Summary, parents []Summary) string {
 	return formatProcessChain(compactNames)
 }
 
+// MemoryChain returns the client command line followed by ancestor command
+// lines, with wrapper processes removed: shells, multiplexers, terminal
+// emulators, and session infrastructure describe where a command runs, not
+// what it runs, so they must not participate in memory matching.
+func MemoryChain(info Info) []string {
+	chain := []string{CommandLine(info.Cmdline)}
+	for _, parent := range info.Parents {
+		if isWrapperProcess(ProcessName(parent)) {
+			continue
+		}
+		chain = append(chain, CommandLine(parent.Cmdline))
+	}
+	return chain
+}
+
+func isWrapperProcess(name string) bool {
+	return isShellProcess(name) || isTerminalProcess(name) || isSessionProcess(name)
+}
+
 func processChainNames(summary Summary, parents []Summary) []string {
 	names := make([]string, 0, 1+len(parents))
 	names = append(names, ProcessName(summary))
@@ -164,7 +183,7 @@ func isTerminalProcess(name string) bool {
 
 func isSessionProcess(name string) bool {
 	switch strings.ToLower(name) {
-	case "systemd", "init", "dbus-daemon", "dbus-broker", "gnome-session-binary", "startplasma-wayland", "startplasma-x11", "tmux", "tmux: server", "screen":
+	case "systemd", "init", "dbus-daemon", "dbus-broker", "gnome-session-binary", "startplasma-wayland", "startplasma-x11", "tmux", "tmux: server", "screen", "zellij":
 		return true
 	default:
 		return false

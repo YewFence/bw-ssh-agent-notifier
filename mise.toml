@@ -21,11 +21,21 @@ typos = "1.48.0"
 betterleaks = "1"
 actionlint = "1"
 git-cliff = "latest"
+gum = "2"
 
 [env]
 # the minimum release age of github actions in days
 PINACT_MIN_AGE = "3"
 PINACT_GITHUB_TOKEN = { value = "${MISE_GITHUB_TOKEN:-}", redact = true }
+
+[bootstrap.linux.systemd.units.bwsshntfr]
+description = "Bitwarden SSH Agent Notifier"
+exec_start = "{{ config_root }}/bin/bwsshntfr run"
+after = ["graphical-session.target"]
+restart = "on-failure"
+restart_sec = "2s"
+wanted_by = ["default.target"]
+environment_file = ["-%h/.config/bwsshntfr.env"]
 
 [tasks."mod:tidy"]
 description = "Tidy Go module dependencies"
@@ -125,6 +135,16 @@ go build -trimpath -ldflags="-s -w -X main.version=${BUILD_VERSION:-dev}" -o "${
 [tasks."build:check"]
 description = "Check whether the CLI builds"
 run = "go test -run '^$' ./cmd/..."
+
+[tasks."service:env"]
+description = "Interactively write the service env file"
+interactive = true
+file = "scripts/service-env.sh"
+
+[tasks."service:apply"]
+description = "Build and install the systemd user service"
+depends = ["service:env", "build"]
+run = "mise bootstrap linux systemd-units apply --yes"
 
 [tasks."actions:check"]
 description = "Run actionlint"

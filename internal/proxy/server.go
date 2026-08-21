@@ -12,8 +12,10 @@ import (
 	"time"
 
 	"github.com/YewFence/bw-ssh-agent-notifier/internal/config"
+	"github.com/YewFence/bw-ssh-agent-notifier/internal/gate"
 	"github.com/YewFence/bw-ssh-agent-notifier/internal/notify"
 	"github.com/YewFence/bw-ssh-agent-notifier/internal/process"
+	"golang.org/x/crypto/ssh/agent"
 )
 
 type Server struct {
@@ -41,6 +43,38 @@ func (server Server) Run(ctx context.Context) error {
 
 	if err := prepareSocket(server.Config.ListenSocket); err != nil {
 		return err
+	}
+
+	var coordinator *gate.Coordinator
+	if server.Config.GateMode == config.GateModeConfirm {
+		coordinator = gate.NewCoordinator(server.Config.GateTimeout, server.Config.GateRememberTTL, notifier, logger)
+		if err := prepareSocket(server.Config.ControlSocket); err != nil {
+			return err
+		}
+		controlAddr := net.UnixAddr{Name: server.Config.ControlSocket, Net: "unix"}
+		controlListener, err := net.ListenUnix("unix", &controlAddr)
+		if err != nil {
+			return err
+		}
+		defer func() {
+			if err := controlListener.Close(); err != nil {
+				logger.Warn("close control listener failed", "error", err)
+			}
+			if err := os.Remove(server.Config.ControlSocket); err != nil && !errors.Is(err, os.ErrNotExist) {
+				logger.Warn("remove control socket failed", "path", server.Config.ControlSocket, "error", err)
+			}
+		}()
+		controlServer := &gate.ControlServer{Coordinator: coordinator, Logger: logger}
+		go func() {
+			if err := controlServer.Serve(ctx, controlListener); err != nil {
+				logger.Error("control server exited", "error", err)
+			}
+		}()
+		logger.Info(
+			"gate control listening",
+			"control_socket", server.Config.ControlSocket,
+			"gate_timeout", server.Config.GateTimeout,
+		)
 	}
 
 	addr := net.UnixAddr{Name: server.Config.ListenSocket, Net: "unix"}
@@ -72,20 +106,21 @@ func (server Server) Run(ctx context.Context) error {
 			logger.Warn("accept failed", "error", err)
 			continue
 		}
-		go server.handleClient(ctx, client, notifier, logger)
+		go server.handleClient(ctx, client, notifier, logger, coordinator)
 	}
 }
 
-func (server Server) handleClient(ctx context.Context, client *net.UnixConn, notifier notify.Notifier, logger *slog.Logger) {
+func (server Server) handleClient(ctx context.Context, client *net.UnixConn, notifier notify.Notifier, logger *slog.Logger, coordinator *gate.Coordinator) {
 	defer func() {
 		_ = client.Close()
 	}()
 
+	clientInfo := process.Info{}
 	cred, err := process.PeerCredentials(client)
 	if err != nil {
 		logger.Warn("read peer credentials failed", "error", err)
 	} else {
-		server.logClient(ctx, notifier, logger, cred)
+		clientInfo = server.logClient(ctx, notifier, logger, cred, coordinator == nil)
 	}
 
 	upstream, err := net.DialUnix("unix", nil, &net.UnixAddr{Name: server.Config.UpstreamSocket, Net: "unix"})
@@ -97,12 +132,26 @@ func (server Server) handleClient(ctx context.Context, client *net.UnixConn, not
 		_ = upstream.Close()
 	}()
 
+	if coordinator != nil {
+		gateAgent := &gate.Agent{
+			ConnCtx:     ctx,
+			Upstream:    agent.NewClient(upstream),
+			Coordinator: coordinator,
+			Client:      clientInfo,
+			Logger:      logger,
+		}
+		// ServeAgent only returns on I/O errors, so the client always ends the
+		// session by disconnecting.
+		logger.Debug("gate agent connection closed", "error", agent.ServeAgent(gateAgent, client))
+		return
+	}
+
 	if err := proxyConnections(client, upstream); err != nil {
 		logger.Debug("proxy connection closed", "error", err)
 	}
 }
 
-func (server Server) logClient(ctx context.Context, notifier notify.Notifier, logger *slog.Logger, cred process.Credentials) {
+func (server Server) logClient(ctx context.Context, notifier notify.Notifier, logger *slog.Logger, cred process.Credentials, sendNotification bool) process.Info {
 	info, err := process.Inspect(cred.PID, server.Config.ParentDepth)
 	attrs := []any{
 		"client_pid", cred.PID,
@@ -128,12 +177,16 @@ func (server Server) logClient(ctx context.Context, notifier notify.Notifier, lo
 	}
 
 	if server.Config.NotifyBackend == "off" {
-		return
+		return info
+	}
+	if !sendNotification {
+		return info
 	}
 	body := notificationBody(info, server.Config.NotifyFullTree)
 	if err := notifier.Send(ctx, notify.Notification{Summary: "SSH agent request", Body: body}); err != nil {
 		logger.Warn("send notification failed", "error", err)
 	}
+	return info
 }
 
 func notificationBody(info process.Info, fullTree bool) string {

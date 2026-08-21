@@ -41,6 +41,7 @@ func newRootCommand(version string, runner runFunc) *cobra.Command {
 	rootCmd.AddCommand(newNotifyCommand(&cfg, &envErr))
 	rootCmd.AddCommand(newDebugCommand(&cfg, &envErr))
 	rootCmd.AddCommand(newSystemdCommand(&cfg, &envErr))
+	rootCmd.AddCommand(newGateCommand(&cfg, &envErr))
 	rootCmd.AddCommand(newVersionCommand(version))
 	return rootCmd
 }
@@ -62,6 +63,10 @@ func addConfigFlags(cmd *cobra.Command, cfg *config.Config) {
 	flags.DurationVar(&cfg.NotifyExpireTimeout, "notify-expire-timeout", cfg.NotifyExpireTimeout, "notification display timeout (env: WRAPPER_NOTIFY_EXPIRE_TIMEOUT)")
 	flags.BoolVar(&cfg.NotifyFullTree, "notify-full-process-tree", cfg.NotifyFullTree, "show the full process tree in notifications (env: WRAPPER_NOTIFY_FULL_PROCESS_TREE)")
 	flags.IntVar(&cfg.ParentDepth, "parent-depth", cfg.ParentDepth, "parent process depth to inspect (env: WRAPPER_PARENT_DEPTH)")
+	flags.StringVar(&cfg.GateMode, "gate", cfg.GateMode, "gate mode: off or confirm (env: WRAPPER_GATE)")
+	flags.DurationVar(&cfg.GateTimeout, "gate-timeout", cfg.GateTimeout, "gate decision timeout before denying a signature (env: WRAPPER_GATE_TIMEOUT)")
+	flags.DurationVar(&cfg.GateRememberTTL, "gate-remember-ttl", cfg.GateRememberTTL, "default gate allow-remember TTL; 0 disables remembering (env: WRAPPER_GATE_REMEMBER_TTL)")
+	flags.StringVar(&cfg.ControlSocket, "control-socket", cfg.ControlSocket, "gate control Unix socket path (env: WRAPPER_CONTROL_SOCKET)")
 	flags.StringVar(&cfg.LogLevel, "log-level", cfg.LogLevel, "log level: debug, info, warn, error")
 	flags.StringVar(&cfg.LogFormat, "log-format", cfg.LogFormat, "log format: text or json")
 }
