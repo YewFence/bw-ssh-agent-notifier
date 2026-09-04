@@ -5,7 +5,7 @@ minimum_release_age = "3d"
 
 [tools]
 # https://go.dev/
-go = "1.26.5"
+go = "1.27.1"
 # https://nodejs.org/
 node = "26"
 # https://pnpm.io/
