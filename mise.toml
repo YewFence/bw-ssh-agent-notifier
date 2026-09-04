@@ -11,14 +11,14 @@ node = "26"
 # https://pnpm.io/
 pnpm = "11"
 # https://golangci-lint.run/
-golangci-lint = "2"
+golangci-lint = "2.13.2"
 # https://github.com/suzuki-shunsuke/nllint
 "go:github.com/suzuki-shunsuke/nllint/cmd/nllint" = "1"
 # https://github.com/suzuki-shunsuke/pinact
-pinact = "4"
+pinact = "4.1.1"
 # https://github.com/crate-ci/typos
-typos = "1.48.0"
-betterleaks = "1"
+typos = "1.50.1"
+betterleaks = "v1.8.1"
 actionlint = "1"
 git-cliff = "latest"
 
