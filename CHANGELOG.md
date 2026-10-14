@@ -1,3 +1,13 @@
+## What's Changed in 0.2.0
+* fall back to /run/user/<uid> when XDG_RUNTIME_DIR is unset by @YewFence
+* bootstrap template application by @YewFence
+* apply go-cli template from YewFence/template@563820a by @YewFence
+* update mise tool lock versions by @YewFence
+* document the signature gate by @YewFence
+* add optional signature gate with terminal approval by @YewFence
+
+**Full Changelog**: https://github.com/YewFence/bw-ssh-agent-notifier/compare/v0.1.1...v0.2.0
+
 ## What's Changed in 0.1.1
 * chore(gomod-deps): update module golang.org/x/sys to v0.47.0 by @renovate[bot] in [#9](https://github.com/YewFence/bw-ssh-agent-notifier/pull/9)
 * chore(go-deps): update dependency go to v1.26.5 by @renovate[bot] in [#10](https://github.com/YewFence/bw-ssh-agent-notifier/pull/10)
