@@ -27,13 +27,13 @@ jobs:
       RELEASE_BRANCH: release
     steps:
       - name: Checkout code
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
           fetch-depth: 0
 
       - name: Setup mise
-        uses: jdx/mise-action@v4
+        uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           install_args: git-cliff
