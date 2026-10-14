@@ -170,12 +170,18 @@ func envString(name, fallback string) string {
 	return fallback
 }
 
-func defaultListenSocket() string {
-	runtimeDir := os.Getenv("XDG_RUNTIME_DIR")
-	if runtimeDir == "" {
-		return ""
+func defaultRuntimeDir() string {
+	if runtimeDir := os.Getenv("XDG_RUNTIME_DIR"); runtimeDir != "" {
+		return runtimeDir
 	}
-	return filepath.Join(runtimeDir, "bitwarden-ssh-agent-wrapper.sock")
+	// pam_systemd normally exports XDG_RUNTIME_DIR for every login session,
+	// but stripped environments (e.g. one-shot ssh commands) still resolve to
+	// the same directory through the logind UID layout.
+	return filepath.Join("/run/user", strconv.Itoa(os.Getuid()))
+}
+
+func defaultListenSocket() string {
+	return filepath.Join(defaultRuntimeDir(), "bitwarden-ssh-agent-wrapper.sock")
 }
 
 func defaultUpstreamSocket() string {
@@ -187,9 +193,5 @@ func defaultUpstreamSocket() string {
 }
 
 func defaultControlSocket() string {
-	runtimeDir := os.Getenv("XDG_RUNTIME_DIR")
-	if runtimeDir == "" {
-		return ""
-	}
-	return filepath.Join(runtimeDir, "bitwarden-ssh-agent-wrapper-control.sock")
+	return filepath.Join(defaultRuntimeDir(), "bitwarden-ssh-agent-wrapper-control.sock")
 }

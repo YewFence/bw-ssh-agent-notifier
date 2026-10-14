@@ -15,7 +15,7 @@ Bitwarden Desktop Flatpak can act as an SSH agent, but the Flatpak sandbox canno
 
 bw-ssh-agent-notifier does not replace Bitwarden authorization. It runs in front of the Bitwarden SSH agent and adds local observability:
 
-- Listens on a wrapper socket, by default `$XDG_RUNTIME_DIR/bitwarden-ssh-agent-wrapper.sock`.
+- Listens on a wrapper socket, by default `$XDG_RUNTIME_DIR/bitwarden-ssh-agent-wrapper.sock` (falls back to `/run/user/<uid>/` when `XDG_RUNTIME_DIR` is unset, so sessions without a pam_systemd environment still resolve the same path).
 - Reads Linux peer credentials from incoming Unix socket connections.
 - Inspects `/proc/<pid>/exe`, `/proc/<pid>/cmdline`, and a limited parent process chain.
 - Sends a desktop notification such as `ssh is using Bitwarden SSH agent`.

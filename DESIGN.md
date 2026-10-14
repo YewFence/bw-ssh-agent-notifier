@@ -50,6 +50,8 @@ wrapper 对外 socket：
 $XDG_RUNTIME_DIR/bitwarden-ssh-agent-wrapper.sock
 ```
 
+XDG_RUNTIME_DIR 缺失时（例如环境被剥掉的 ssh 会话），默认回退到 `/run/user/<uid>/`，两者指向同一个 logind 目录。
+
 Bitwarden Flatpak agent socket：
 
 ```text
@@ -154,7 +156,7 @@ Bitwarden sock
 
 ### 控制通道
 
-daemon 额外监听一个控制 socket，默认 `$XDG_RUNTIME_DIR/bitwarden-ssh-agent-wrapper-control.sock`，协议为 JSON-lines：
+daemon 额外监听一个控制 socket，默认 `$XDG_RUNTIME_DIR/bitwarden-ssh-agent-wrapper-control.sock`（同样在 XDG_RUNTIME_DIR 缺失时回退 `/run/user/<uid>/`），协议为 JSON-lines：
 
 ```text
 server -> controller: hello / pending / resolved / state / ok / error

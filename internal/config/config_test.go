@@ -1,10 +1,33 @@
 package config
 
 import (
+	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 )
+
+func TestFromEnvRuntimeDirFallback(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", "")
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("WRAPPER_NOTIFY_BACKEND", "off")
+
+	cfg, err := FromEnv()
+	if err != nil {
+		t.Fatalf("FromEnv() error = %v", err)
+	}
+	runtimeDir := filepath.Join("/run/user", strconv.Itoa(os.Getuid()))
+	if cfg.ListenSocket != filepath.Join(runtimeDir, "bitwarden-ssh-agent-wrapper.sock") {
+		t.Fatalf("ListenSocket = %q", cfg.ListenSocket)
+	}
+	if cfg.ControlSocket != filepath.Join(runtimeDir, "bitwarden-ssh-agent-wrapper-control.sock") {
+		t.Fatalf("ControlSocket = %q", cfg.ControlSocket)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+}
 
 func TestFromEnv(t *testing.T) {
 	runtimeDir := t.TempDir()
