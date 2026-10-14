@@ -5,7 +5,6 @@ local linters = new Mapping<String, Step> {
   ["lint"] {
     fix = "mise run fix"
     check = "mise run check"
-    check_first = true
   }
   // This step don't contain autofix
   ["large-file"] = Builtins.check_added_large_files
@@ -13,8 +12,6 @@ local linters = new Mapping<String, Step> {
 
 hooks {
   ["pre-commit"] {
-    fix = true
-    stage = true
     stash = "git"
     steps = linters
   }

@@ -1,5 +1,13 @@
 [tools]
+git-cliff = "latest"
 "go:golang.org/x/vuln/cmd/govulncheck" = "latest"
+
+[tasks.audit]
+description = "Run Go dependency verification and vulnerability checks"
+run = [
+  { task = "mod:verify" },
+  { task = "vuln:check" },
+]
 
 [tasks."vuln:check"]
 description = "Run Go vulnerability checks"
@@ -13,11 +21,6 @@ run = "go mod verify"
 # Need github token to avoid rate limit
 description = "Check for action pinned version"
 run = "pinact run --check"
-
-[tasks.'actions:outdated']
-# Need github token to avoid rate limit
-description = "Check for outdated action versions"
-run = "pinact run --update --diff"
 
 [tasks.'release:version']
 description = "Print the next release version without the v prefix"
@@ -82,83 +85,6 @@ else
 fi
 """
 
-[tasks.'release:tag:create']
-description = "Create the release tag for RELEASE_TAG, or for the next release tag"
-shell = "bash -c"
-run = """
-tag="$(mise run release:tag)"
-
-if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
-  existing_commit="$(git rev-list -n 1 "${tag}")"
-  current_commit="$(git rev-parse HEAD)"
-  if [[ "${existing_commit}" != "${current_commit}" ]]; then
-    echo "tag ${tag} already exists, but it does not point to the current commit"
-    exit 1
-  fi
-  echo "tag ${tag} already exists. Skipping tag creation"
-else
-  git tag -a "${tag}" -m "Release ${tag}"
-fi
-"""
-
 [tasks.'release:package']
 description = "Package the built CLI artifact for a release"
-shell = "bash -c"
-run = """
-artifact_dir="${RELEASE_ARTIFACT_DIR:-${BUILD_OUTPUT_DIR:-dist}}"
-tag="${RELEASE_TAG:-}"
-if [[ -z "${tag}" ]]; then
-  tag="$(mise run release:tag)"
-fi
-
-if [[ -z "${GOOS:-}" ]]; then
-  echo "GOOS must be set"
-  exit 1
-fi
-if [[ -z "${GOARCH:-}" ]]; then
-  echo "GOARCH must be set"
-  exit 1
-fi
-
-binary_path=""
-binary_count=0
-while IFS= read -r candidate; do
-  binary_count="$((binary_count + 1))"
-  if [[ -z "${binary_path}" ]]; then
-    binary_path="${candidate}"
-  fi
-done < <(find "${artifact_dir}" -maxdepth 1 -type f ! -name '*.tar.gz' ! -name '*.zip' -print | sort)
-
-if [[ "${binary_count}" -eq 0 ]]; then
-  echo "No build artifact was found in ${artifact_dir}"
-  exit 1
-fi
-if [[ "${binary_count}" -gt 1 ]]; then
-  echo "Expected exactly one build artifact in ${artifact_dir}, found ${binary_count}"
-  find "${artifact_dir}" -maxdepth 1 -type f ! -name '*.tar.gz' ! -name '*.zip' -print | sort | sed 's/^/  /'
-  exit 1
-fi
-
-binary_name="$(basename "${binary_path}")"
-package_name="${binary_name%.exe}-${tag}-${GOOS}-${GOARCH}"
-artifact_ext="${RELEASE_ARTIFACT_EXT:-}"
-if [[ -z "${artifact_ext}" ]]; then
-  artifact_ext="tar.gz"
-  if [[ "${GOOS}" == "windows" ]]; then
-    artifact_ext="zip"
-  fi
-fi
-
-case "${artifact_ext}" in
-  zip)
-    (cd "${artifact_dir}" && zip -j "${package_name}.zip" "${binary_name}")
-    ;;
-  tar.gz)
-    tar -C "${artifact_dir}" -czf "${artifact_dir}/${package_name}.tar.gz" "${binary_name}"
-    ;;
-  *)
-    echo "Unsupported release artifact extension ${artifact_ext}"
-    exit 1
-    ;;
-esac
-"""
+file = "scripts/release-package.sh"

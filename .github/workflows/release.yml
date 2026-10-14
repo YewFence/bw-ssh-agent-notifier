@@ -17,19 +17,9 @@ on:
         description: "Version tag to publish"
         required: true
         type: string
-      overwrite_latest_tag:
-        description: "Whether to overwrite the latest tag"
-        required: false
-        type: boolean
-        default: false
-      prerelease:
-        description: "Whether to mark the GitHub Release as a pre-release"
-        required: false
-        type: boolean
-        default: false
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ github.event_name }}-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
@@ -53,7 +43,7 @@ jobs:
       version: ${{ steps.release.outputs.version }}
       checkout_ref: ${{ steps.release.outputs.checkout_ref }}
       should_release: ${{ steps.release.outputs.should_release }}
-      create_tag: ${{ steps.release.outputs.create_tag }}
+      allow_tag_creation: ${{ steps.release.outputs.allow_tag_creation }}
       prerelease: ${{ steps.release.outputs.prerelease }}
     env:
       MISE_TASK_RUN_AUTO_INSTALL: "false"
@@ -77,14 +67,14 @@ jobs:
           fi
 
       - name: Checkout code
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.merge_commit_sha || inputs.tag || github.ref }}
           fetch-depth: 0
 
       - name: Setup mise
-        uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
+        uses: jdx/mise-action@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           install_args: git-cliff
@@ -95,39 +85,38 @@ jobs:
         id: release
         env:
           INPUT_TAG: ${{ inputs.tag }}
-          INPUT_PRERELEASE: ${{ inputs.prerelease }}
           REF_NAME: ${{ github.ref_name }}
-          MERGE_COMMIT_SHA: ${{ github.event.pull_request.merge_commit_sha }}
         run: |
           tag=""
-          checkout_ref="${GITHUB_SHA}"
+          checkout_ref="$(git rev-parse HEAD)"
           should_release="false"
-          create_tag="false"
+          allow_tag_creation="false"
           prerelease="false"
 
           if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
             tag="${INPUT_TAG}"
-            checkout_ref="${INPUT_TAG}"
             should_release="true"
-            prerelease="${INPUT_PRERELEASE}"
           elif [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
             tag="${REF_NAME}"
-            checkout_ref="${REF_NAME}"
             should_release="true"
           elif [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
             tag="$(mise run release:tag)"
-            checkout_ref="${MERGE_COMMIT_SHA:-${GITHUB_SHA}}"
             should_release="true"
-            create_tag="true"
+            allow_tag_creation="true"
           fi
 
-          if [[ "${GITHUB_EVENT_NAME}" != "workflow_dispatch" && "${tag}" == *-* ]]; then
+          if [[ ! "${tag}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
+            echo "tag must use vMAJOR.MINOR.PATCH, optionally followed by a pre-release suffix like -rc.1"
+            exit 1
+          fi
+
+          if [[ "${tag}" == *-* ]]; then
             prerelease="true"
           fi
 
           echo "Resolved release tag ${tag}"
           echo "Release checkout ref ${checkout_ref}"
-          echo "Create tag ${create_tag}"
+          echo "Allow tag creation ${allow_tag_creation}"
           echo "Prerelease ${prerelease}"
 
           {
@@ -140,7 +129,7 @@ jobs:
             echo "| Version | \`${tag#v}\` |"
             echo "| Checkout ref | \`${checkout_ref}\` |"
             echo "| Should release | \`${should_release}\` |"
-            echo "| Create tag | \`${create_tag}\` |"
+            echo "| Allow tag creation | \`${allow_tag_creation}\` |"
             echo "| Prerelease | \`${prerelease}\` |"
           } >> "${GITHUB_STEP_SUMMARY}"
 
@@ -149,12 +138,12 @@ jobs:
             echo "version=${tag#v}"
             echo "checkout_ref=${checkout_ref}"
             echo "should_release=${should_release}"
-            echo "create_tag=${create_tag}"
+            echo "allow_tag_creation=${allow_tag_creation}"
             echo "prerelease=${prerelease}"
           } >> "${GITHUB_OUTPUT}"
 
       - name: Validate release PR freshness
-        if: ${{ github.event_name == 'pull_request' && steps.release.outputs.create_tag == 'true' }}
+        if: ${{ github.event_name == 'pull_request' && steps.release.outputs.allow_tag_creation == 'true' }}
         env:
           MERGE_COMMIT_SHA: ${{ github.event.pull_request.merge_commit_sha }}
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
@@ -222,20 +211,20 @@ jobs:
           - goos: linux
             goarch: arm64
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
           ref: ${{ needs.version.outputs.checkout_ref }}
           fetch-depth: 0
 
-      - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
+      - uses: jdx/mise-action@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           install_args: go
           add_shims_to_path: true
           cache_key: "mise-release-{{install_args_hash}}-{{file_hash}}"
 
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.cache/go-build
@@ -263,7 +252,7 @@ jobs:
         run: mise run release:package
 
       - name: Upload artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@v7
         with:
           name: "binary-${{ matrix.goos }}-${{ matrix.goarch }}"
           path: |
@@ -273,24 +262,28 @@ jobs:
 
   release:
     name: Publish GitHub Release
-    needs:
-      - version
-      - build
+    needs: [version, build]
     if: ${{ needs.version.outputs.should_release == 'true' }}
     runs-on: ubuntu-latest
+    concurrency:
+      group: github-release-${{ needs.version.outputs.tag }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
     env:
       MISE_TASK_RUN_AUTO_INSTALL: "false"
       MISE_LOCKED: "1"
       MISE_ENV: "ci"
     steps:
       - name: Checkout code
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.version.outputs.checkout_ref }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup mise
-        uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
+        uses: jdx/mise-action@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           install_args: git-cliff
@@ -315,45 +308,29 @@ jobs:
             echo "| --- | --- |"
             echo "| Release tag | \`${RELEASE_TAG}\` |"
             echo "| Prerelease | \`${{ needs.version.outputs.prerelease }}\` |"
-            echo "| Create tag | \`${{ needs.version.outputs.create_tag }}\` |"
+            echo "| Allow tag creation | \`${{ needs.version.outputs.allow_tag_creation }}\` |"
           } >> "${GITHUB_STEP_SUMMARY}"
 
           echo "path=${notes_file}" >> "${GITHUB_OUTPUT}"
 
-      - name: Create release tag
-        if: ${{ needs.version.outputs.create_tag == 'true' }}
-        env:
-          RELEASE_TAG: ${{ needs.version.outputs.tag }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git fetch --tags --force
-          mise run release:tag:create
-          git push origin "${RELEASE_TAG}"
-          echo "Created release tag ${RELEASE_TAG}"
-          echo "| Release tag Created | \`true\` |" >> "${GITHUB_STEP_SUMMARY}"
-
-      - name: Record existing release tag
-        if: ${{ needs.version.outputs.create_tag != 'true' }}
-        env:
-          RELEASE_TAG: ${{ needs.version.outputs.tag }}
-        run: |
-          echo "Using existing release tag ${RELEASE_TAG}"
-          echo "| Release tag Created | \`false\` |"  >> "${GITHUB_STEP_SUMMARY}"
-
       - name: Download artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
 
-      - name: Create release
-        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
-        with:
-          tag_name: ${{ needs.version.outputs.tag }}
-          body_path: ${{ steps.notes.outputs.path }}
-          files: dist/*
-          prerelease: ${{ needs.version.outputs.prerelease }}
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.version.outputs.tag }}
+          RELEASE_COMMIT: ${{ needs.version.outputs.checkout_ref }}
+          ALLOW_TAG_CREATION: ${{ needs.version.outputs.allow_tag_creation }}
+          RELEASE_PRERELEASE: ${{ needs.version.outputs.prerelease }}
+          RELEASE_NOTES_FILE: ${{ steps.notes.outputs.path }}
+          RELEASE_ASSET_DIR: dist
+
+        run: bash .github/scripts/publish-release.sh
 
       - name: Summarize published release
         env:
@@ -363,29 +340,6 @@ jobs:
           release_url="$(gh release view "${RELEASE_TAG}" --json url --jq .url)"
           echo "Published GitHub Release ${release_url}"
           echo "| URL | ${release_url} |" >> "${GITHUB_STEP_SUMMARY}"
-
-      - name: Move latest tag
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.overwrite_latest_tag }}
-        env:
-          RELEASE_TAG: ${{ needs.version.outputs.tag }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git fetch --tags --force
-
-          release_commit="$(git rev-list -n 1 "${RELEASE_TAG}")"
-          git tag -fa latest -m "latest -> ${RELEASE_TAG}" "${release_commit}"
-          git push --force origin refs/tags/latest
-          echo "Moved latest tag to ${RELEASE_TAG}"
-          {
-            echo "| Moved Latest Tag | \`${RELEASE_TAG}\` |"
-          } >> "${GITHUB_STEP_SUMMARY}"
-
-      - name: Record latest tag unchanged
-        if: ${{ github.event_name != 'workflow_dispatch' || inputs.overwrite_latest_tag != true }}
-        run: |
-          echo "latest tag was not moved"
-          echo "| Moved Latest Tag | \`skipped\` |" >> "${GITHUB_STEP_SUMMARY}"
 
   close-superseded-release-pr:
     name: Close Superseded Release PR
