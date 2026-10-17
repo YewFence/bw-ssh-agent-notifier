@@ -178,7 +178,7 @@ func TestServerGateMode(t *testing.T) {
 			LogLevel:            config.DefaultLogLevel,
 			LogFormat:           config.DefaultLogFormat,
 			GateMode:            config.GateModeConfirm,
-			GateTimeout:         time.Minute,
+			GateTimeout:         100 * time.Millisecond,
 			ControlSocket:       controlPath,
 		},
 		Notifier: notify.Noop(),
