@@ -160,23 +160,28 @@ daemon 额外监听一个控制 socket，默认 `$XDG_RUNTIME_DIR/bitwarden-ssh-
 
 ```text
 server -> controller: hello / pending / resolved / state / ok / error
-controller -> server: {"type":"decide","id":"3","decision":"allow|deny","remember_seconds":60}
+controller -> server: {"type":"decide","id":"3","decision":"allow|deny","remember_seconds":60,"scope_index":2}
                  {"type":"list"}
 ```
 
-`bwsshntfr gate` 是内置控制器，bubbletea TUI：待决列表（key 名、cmdline、PID、父链、超时倒计时、指纹），键位 `a` 允许一次、`m` 允许并记住（弹出 1m/5m/15m/自定义选择器，默认项为全局默认 TTL）、`d` 拒绝、`j/k` 选择、`q` 退出。任何实现控制协议的客户端都可以替代它。
+`bwsshntfr gate` 是内置控制器，bubbletea TUI：待决列表（key 名、请求者 cmdline、PID、父链、超时倒计时、指纹），键位 `a/y` 允许一次、`m` 允许并记住（弹出 1m/5m/15m/自定义选择器，默认项为全局默认 TTL）、`d/n` 拒绝、`j/k` 或上下键切换请求、`h/l` 或左右键选择授权命令层级、`q` 退出。向左选父进程、向右选请求者，无需 Enter 确认选层；只有裁决动作才发往 daemon。时长选择器保留原有按键。任何实现控制协议的客户端都可以替代它。
+
+请求通过 `scopes` 提供可选命令的完整 argv、exe、PID 和内核 start time，以及 `default_scope`、`scope_automatic`。界面区分请求者与选中的记忆范围，展示选层来源及「此 key、此命令和后代、TTL 到期或命令退出失效」。手动选层按请求 ID 保存，刷新和切换请求不覆盖；时长选择器绑定原请求和所选层级，原请求结束时关闭，不能误操作下一条请求。
 
 ### 记忆模型
 
-记忆 key = `key 指纹 + 客户端完整 cmdline + 父链剥离包装进程后的 cmdline 序列`。剥离名单覆盖 shell、复用器（tmux/zellij/screen）、终端模拟器和会话基础设施（systemd/dbus）——它们描述「在哪跑」而非「跑什么」。效果：zellij 加减层不影响命中；`jj git push -b main` 与 `-b wrongbranch` 的分支名保留在链里，错分支一定重新询问。
+授权标识 = `key 指纹 + 所选进程 PID + 内核 start time`，绑定「这一次命令」而非同名命令文本。后续请求的可选命令链包含该实例、且实例仍存活时可复用，内部 git/ssh 等子命令参数不参与匹配。进程身份和存活状态通过 `prometheus/procfs` 读取，PID 重用不能继承授权。每次签名前刷新进程信息，避免沿用连接建立时的祖先快照。
+
+shell、复用器（tmux/zellij/screen）、终端模拟器和会话基础设施（systemd/dbus）只显示为上下文，不是可选命令。默认选择最底层请求者；daemon 的可重复参数 `--gate-command-group '["bd","sync"]'` 或环境变量 `WRAPPER_GATE_COMMAND_GROUPS='[["bd","sync"]]'` 可预设命令组。组内元素是可执行文件名或绝对路径、后接完整 argv 元素前缀；多组同时匹配时选最近的命令。命令行组替换环境变量组。预设只负责自动选层，绝不自动授权。
 
 属性：
 
-1. 固定窗口不续期；TTL 全局默认 1m，可配，`0` 完全禁用记忆。
+1. 固定窗口不续期；TTL 全局默认 1m，可配，`0` 完全禁用记忆。TTL 到期或所选进程退出，任一发生即失效；同样命令重新执行是新实例。
 2. 仅内存，daemon 重启即忘。
 3. deny 不写记忆。
 4. 记忆命中静默放行（journal 留审计日志），不发通知。
-5. 裁决时对队列中记忆 key 相同的全部待决请求生效（allow/deny 都批量），消灭连发请求的 yes-yes-yes。
+5. 一次允许或拒绝仅批量处理同 key、同请求者实例的待决请求；记住允许则同时处理同 key、被所选命令实例覆盖的全部待决请求，不影响其他 key 或独立命令。
+6. 日志记录可选命令及记住时选中的 scope PID、start time、cmdline；进程身份不可读时禁用记住，仍可一次裁决。
 
 ### 通知策略
 
@@ -310,6 +315,7 @@ bwsshntfr systemd print-user-service
 --gate
 --gate-timeout
 --gate-remember-ttl
+--gate-command-group
 --control-socket
 --log-level
 --log-format
@@ -332,6 +338,7 @@ flag 和环境变量映射：
 --gate                  WRAPPER_GATE
 --gate-timeout          WRAPPER_GATE_TIMEOUT
 --gate-remember-ttl     WRAPPER_GATE_REMEMBER_TTL
+--gate-command-group    WRAPPER_GATE_COMMAND_GROUPS
 --control-socket        WRAPPER_CONTROL_SOCKET
 ```
 
@@ -357,6 +364,7 @@ WRAPPER_PARENT_DEPTH
 WRAPPER_GATE
 WRAPPER_GATE_TIMEOUT
 WRAPPER_GATE_REMEMBER_TTL
+WRAPPER_GATE_COMMAND_GROUPS
 WRAPPER_CONTROL_SOCKET
 ```
 
@@ -371,6 +379,7 @@ WRAPPER_PARENT_DEPTH=5
 WRAPPER_GATE=off
 WRAPPER_GATE_TIMEOUT=60s
 WRAPPER_GATE_REMEMBER_TTL=1m
+WRAPPER_GATE_COMMAND_GROUPS=[]
 WRAPPER_CONTROL_SOCKET=$XDG_RUNTIME_DIR/bitwarden-ssh-agent-wrapper-control.sock
 ```
 
@@ -425,5 +434,5 @@ github.com/charmbracelet/lipgloss   # TUI 样式
 7. 以 `--gate confirm` 重启 wrapper，打开 `bwsshntfr gate`，执行一次 `ssh` 或 `git push`：
    - 不开 TUI 时签名立即被拒，通知说明 no-controller。
    - 开 TUI 但不裁决，超过 gate-timeout 后被拒，通知说明 timeout。
-   - TUI 按 `a` 放行；按 `m` 选 1m，随后同命令重复执行不再询问（journal 出现 allowed by remembered decision）。
+   - TUI 按 `a` 一次放行；用 `h/l` 选择发起命令实例，按 `m` 选 1m，随后该实例下不同内部子命令使用同 key 不再询问（journal 出现 allowed by remembered decision）。所选命令退出或 TTL 到期后失效；同样命令重新启动需要重新确认。
    - 换一个分支名重复执行，重新弹出询问。

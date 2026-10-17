@@ -45,6 +45,7 @@ The gate is an opt-in mode that intercepts every signature request and waits for
 | Gate mode | `--gate` | `WRAPPER_GATE` | `off` |
 | Decision timeout | `--gate-timeout` | `WRAPPER_GATE_TIMEOUT` | `60s` |
 | Default remember TTL | `--gate-remember-ttl` | `WRAPPER_GATE_REMEMBER_TTL` | `1m` |
+| Automatic command scopes | `--gate-command-group` (repeatable JSON argv prefix) | `WRAPPER_GATE_COMMAND_GROUPS` (JSON array of argv prefixes) | None |
 | Control socket | `--control-socket` | `WRAPPER_CONTROL_SOCKET` | `$XDG_RUNTIME_DIR/bitwarden-ssh-agent-wrapper-control.sock` |
 
 Supported gate modes:
@@ -56,7 +57,9 @@ Supported gate modes:
 
 The gate fails closed: with no controller connected, or when no decision arrives within the decision timeout, the signature is denied and a desktop notification explains the reason.
 
-The remember TTL is a fixed, non-renewing window applied when you allow a request with `m` in the TUI. A remembered decision replays silently for the same key and the same normalized process chain. Set `0` to disable remembering entirely.
+The remember TTL is a fixed, non-renewing window applied when you allow a request with `m` in the TUI. A grant covers the selected process instance and its descendants for this key only, and ends at expiration or process exit. A new invocation of the same command does not inherit the grant. Set `0` to disable remembering entirely.
+
+Command groups only choose the initial scope; they do not authorize requests. For example, `--gate-command-group '["bd","sync"]'` selects the nearest `bd sync` ancestor. The equivalent environment value is `WRAPPER_GATE_COMMAND_GROUPS='[["bd","sync"]]'`. Groups match executable names or absolute paths and exact argv prefixes. CLI groups replace environment groups. See [automatic command groups](/guide/gate#automatically-select-command-groups).
 
 ## Process Inspection
 
@@ -64,7 +67,7 @@ The remember TTL is a fixed, non-renewing window applied when you allow a reques
 | --- | --- | --- | --- |
 | Parent process depth | `--parent-depth` | `WRAPPER_PARENT_DEPTH` | `5` |
 
-bw-ssh-agent-notifier always records peer credentials from the Unix socket when available. It then inspects `/proc/<pid>/exe`, `/proc/<pid>/cmdline`, and `/proc/<pid>/status`. The parent depth controls how far it follows `PPid` entries from `/proc/<pid>/status`.
+bw-ssh-agent-notifier always records peer credentials from the Unix socket when available. It then inspects `/proc/<pid>/exe`, `/proc/<pid>/cmdline`, `/proc/<pid>/status`, and `/proc/<pid>/stat`. The parent depth controls how far it follows `PPid` entries from `/proc/<pid>/status`, including which ancestors are available for scope selection. Kernel start times distinguish process instances when PIDs are reused.
 
 ## Logging
 

@@ -75,7 +75,7 @@ func (client *ControllerClient) Events() <-chan ControllerEvent {
 	return client.events
 }
 
-func (client *ControllerClient) Decide(id string, allow bool, remember time.Duration) error {
+func (client *ControllerClient) Decide(id string, allow bool, remember time.Duration, scopeIndex int) error {
 	decision := decisionAllow
 	if !allow {
 		decision = decisionDeny
@@ -87,6 +87,7 @@ func (client *ControllerClient) Decide(id string, allow bool, remember time.Dura
 		ID:              id,
 		Decision:        decision,
 		RememberSeconds: int(remember.Seconds()),
+		ScopeIndex:      scopeIndex,
 	})
 }
 

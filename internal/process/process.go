@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+
+	"github.com/prometheus/procfs"
 )
 
 type Credentials struct {
@@ -18,18 +20,44 @@ type Credentials struct {
 }
 
 type Info struct {
-	PID     int
-	UID     uint32
-	GID     uint32
-	Exe     string
-	Cmdline []string
-	Parents []Summary
+	PID       int
+	StartTime uint64
+	UID       uint32
+	GID       uint32
+	Exe       string
+	Cmdline   []string
+	Parents   []Summary
+}
+
+// Instance identifies one process lifetime using its PID and kernel start time.
+type Instance struct {
+	PID       int    `json:"pid"`
+	StartTime uint64 `json:"start_time"`
 }
 
 type Summary struct {
-	PID     int
-	Exe     string
-	Cmdline []string
+	PID       int      `json:"pid"`
+	StartTime uint64   `json:"start_time"`
+	Exe       string   `json:"exe,omitempty"`
+	Cmdline   []string `json:"cmdline,omitempty"`
+}
+
+// Instance returns the process lifetime captured by this summary.
+func (summary Summary) Instance() Instance {
+	return Instance{PID: summary.PID, StartTime: summary.StartTime}
+}
+
+// Alive reports whether this process instance still exists and has not exited.
+func (instance Instance) Alive() bool {
+	if instance.PID <= 0 || instance.StartTime == 0 {
+		return false
+	}
+	proc, err := procfs.NewProc(instance.PID)
+	if err != nil {
+		return false
+	}
+	stat, err := proc.Stat()
+	return err == nil && stat.Starttime == instance.StartTime && stat.State != "Z" && stat.State != "X"
 }
 
 func PeerCredentials(conn *net.UnixConn) (Credentials, error) {
@@ -62,11 +90,12 @@ func PeerCredentials(conn *net.UnixConn) (Credentials, error) {
 func Inspect(pid int, parentDepth int) (Info, error) {
 	summary, ppid, uid, gid, err := readProcess(pid)
 	info := Info{
-		PID:     pid,
-		UID:     uid,
-		GID:     gid,
-		Exe:     summary.Exe,
-		Cmdline: summary.Cmdline,
+		PID:       pid,
+		StartTime: summary.StartTime,
+		UID:       uid,
+		GID:       gid,
+		Exe:       summary.Exe,
+		Cmdline:   summary.Cmdline,
 	}
 	if err != nil {
 		return info, err
@@ -88,7 +117,14 @@ func Inspect(pid int, parentDepth int) (Info, error) {
 }
 
 func CommandLine(args []string) string {
-	return strings.Join(args, " ")
+	quoted := make([]string, len(args))
+	for index, arg := range args {
+		if arg == "" || strings.ContainsAny(arg, " \"'\\") || strings.ContainsFunc(arg, func(char rune) bool { return !strconv.IsPrint(char) }) {
+			arg = strconv.Quote(arg)
+		}
+		quoted[index] = arg
+	}
+	return strings.Join(quoted, " ")
 }
 
 func ProcessName(summary Summary) string {
@@ -129,21 +165,6 @@ func CompactProcessChain(summary Summary, parents []Summary) string {
 		}
 	}
 	return formatProcessChain(compactNames)
-}
-
-// MemoryChain returns the client command line followed by ancestor command
-// lines, with wrapper processes removed: shells, multiplexers, terminal
-// emulators, and session infrastructure describe where a command runs, not
-// what it runs, so they must not participate in memory matching.
-func MemoryChain(info Info) []string {
-	chain := []string{CommandLine(info.Cmdline)}
-	for _, parent := range info.Parents {
-		if isWrapperProcess(ProcessName(parent)) {
-			continue
-		}
-		chain = append(chain, CommandLine(parent.Cmdline))
-	}
-	return chain
 }
 
 func isWrapperProcess(name string) bool {
@@ -212,6 +233,15 @@ func readProcess(pid int) (Summary, int, uint32, uint32, error) {
 		return summary, ppid, uid, gid, fmt.Errorf("read exe: %v; read cmdline: %w", exeErr, cmdlineErr)
 	}
 
+	proc, err := procfs.NewProc(pid)
+	if err != nil {
+		return summary, ppid, uid, gid, err
+	}
+	stat, err := proc.Stat()
+	if err != nil {
+		return summary, ppid, uid, gid, err
+	}
+	summary.StartTime = stat.Starttime
 	return summary, ppid, uid, gid, nil
 }
 

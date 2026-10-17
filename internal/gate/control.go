@@ -44,6 +44,7 @@ type controllerCommand struct {
 	ID              string `json:"id,omitempty"`
 	Decision        string `json:"decision,omitempty"`
 	RememberSeconds int    `json:"remember_seconds,omitempty"`
+	ScopeIndex      int    `json:"scope_index"`
 }
 
 type ControlServer struct {
@@ -148,8 +149,12 @@ func (controlServer *ControlServer) handleCommand(command controllerCommand, wri
 			_ = write(serverMessage{Type: messageError, ID: command.ID, Error: fmt.Sprintf("invalid decision %q", command.Decision)})
 			return
 		}
+		if command.RememberSeconds < 0 || int64(command.RememberSeconds) > int64((1<<63-1)/time.Second) {
+			_ = write(serverMessage{Type: messageError, ID: command.ID, Error: "invalid remember duration"})
+			return
+		}
 		remember := time.Duration(command.RememberSeconds) * time.Second
-		if err := controlServer.Coordinator.Decide(command.ID, command.Decision == decisionAllow, remember); err != nil {
+		if err := controlServer.Coordinator.Decide(command.ID, command.Decision == decisionAllow, remember, command.ScopeIndex); err != nil {
 			_ = write(serverMessage{Type: messageError, ID: command.ID, Error: err.Error()})
 			return
 		}

@@ -129,7 +129,9 @@ Every `SSH_AGENTC_SIGN_REQUEST` now waits for a decision. The UI shows the key n
 
 The gate fails closed. If no `bwsshntfr gate` controller is connected, or a request waits longer than `--gate-timeout` (default 60s), the signature is denied and a desktop notification explains why.
 
-Pressing `m` instead of `a` allows the request and remembers the decision for a chosen TTL (default 1m, presets 1m/5m/15m, custom input). A remembered decision replays silently for the same key and the same normalized process chain — shells, multiplexers, and terminal emulators are stripped, so launching inside zellij does not invalidate the memory, but a different branch in the push command does. Memory is in-RAM only: restarting the daemon clears it, and `--gate-remember-ttl=0` disables it entirely. Deciding one request also clears every other pending request with the same key and chain, so bursts do not force you to press `y` repeatedly.
+Press `h` / `l` or left / right to select a command in the requester's ancestor chain; no Enter is needed to select it. The default is the direct requester. Pressing `m` grants that command instance and its descendants permission to use this key for a chosen TTL (default 1m, presets 1m/5m/15m, custom input). Internal helpers may change without another prompt, but the grant ends when the selected process exits or the TTL expires. Running the same command again is a new invocation and asks again. `a` / `y` remain one-shot allow actions, and `d` / `n` deny.
+
+Use repeatable `--gate-command-group '["bd","sync"]'` flags or `WRAPPER_GATE_COMMAND_GROUPS='[["bd","sync"],["jj","git","push"]]'` to automatically select a matching command scope. Presets never auto-approve: you can override the selection before deciding. See the [gate guide](docs/guide/gate.md) for scope selection and matching details. Memory is in-RAM only, and `--gate-remember-ttl=0` disables remembering.
 
 ## Documentation
 

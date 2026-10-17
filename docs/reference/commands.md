@@ -18,6 +18,7 @@ Global configuration flags can be used on the root command and subcommands that 
 --gate
 --gate-timeout
 --gate-remember-ttl
+--gate-command-group
 --control-socket
 --log-level
 --log-format
@@ -31,7 +32,7 @@ Global configuration flags can be used on the root command and subcommands that 
 bwsshntfr gate
 ```
 
-Keys: `a` allow once, `m` allow and remember (preset picker with custom input), `d` deny, `j/k` select, `q` quit. Deciding one request also resolves every other pending request with the same key and process chain.
+Keys: `a/y` allow once, `m` allow and remember (preset picker with custom input), `d/n` deny, `j/k` or up/down select requests, `h/l` or left/right select a command scope, `q` quit. Left moves toward ancestors; right moves toward the requester. Scope selection needs no Enter. Remembering grants the chosen command instance and its descendants access to this key until the TTL expires or that process exits. One-shot decisions batch only the same requester instance and key; remembering also resolves pending requests covered by the chosen scope.
 
 ## doctor
 

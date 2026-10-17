@@ -134,11 +134,13 @@ func (server Server) handleClient(ctx context.Context, client *net.UnixConn, not
 
 	if coordinator != nil {
 		gateAgent := &gate.Agent{
-			ConnCtx:     ctx,
-			Upstream:    agent.NewClient(upstream),
-			Coordinator: coordinator,
-			Client:      clientInfo,
-			Logger:      logger,
+			ConnCtx:       ctx,
+			Upstream:      agent.NewClient(upstream),
+			Coordinator:   coordinator,
+			Client:        clientInfo,
+			ParentDepth:   server.Config.ParentDepth,
+			CommandGroups: server.Config.GateCommandGroups,
+			Logger:        logger,
 		}
 		// ServeAgent only returns on I/O errors, so the client always ends the
 		// session by disconnecting.
@@ -169,6 +171,7 @@ func (server Server) logClient(ctx context.Context, notifier notify.Notifier, lo
 		"client_exe", info.Exe,
 		"client_cmdline", cmdline,
 		"parent_chain", parentChain,
+		"command_scopes", process.CommandScopes(info),
 	)
 	if err != nil {
 		logger.Warn("ssh agent client connected", attrs...)

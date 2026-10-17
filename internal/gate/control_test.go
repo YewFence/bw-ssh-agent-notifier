@@ -164,7 +164,7 @@ func TestControlProtocolRememberRoundTrip(t *testing.T) {
 
 	results := make(chan Result, 2)
 	go func() {
-		result, _ := coordinator.Submit(t.Context(), requestWithMemoryKey("SHA256:mem", "mem-X"))
+		result, _ := coordinator.Submit(t.Context(), testRequest("SHA256:mem"))
 		results <- result
 	}()
 	pending := client.readUntil(t, "pending")
@@ -176,7 +176,7 @@ func TestControlProtocolRememberRoundTrip(t *testing.T) {
 	}
 
 	go func() {
-		result, _ := coordinator.Submit(t.Context(), requestWithMemoryKey("SHA256:mem", "mem-X"))
+		result, _ := coordinator.Submit(t.Context(), testRequest("SHA256:mem"))
 		results <- result
 	}()
 	select {

@@ -12,22 +12,25 @@ import (
 	"time"
 
 	"github.com/YewFence/bw-ssh-agent-notifier/internal/notify"
+	"github.com/YewFence/bw-ssh-agent-notifier/internal/process"
 )
 
 const eventChannelSize = 64
 
 type Request struct {
-	ID             string    `json:"id"`
-	KeyFormat      string    `json:"key_format"`
-	KeyFingerprint string    `json:"key_fingerprint"`
-	KeyComment     string    `json:"key_comment,omitempty"`
-	ClientPID      int       `json:"client_pid"`
-	ClientExe      string    `json:"client_exe,omitempty"`
-	ClientCmdline  string    `json:"client_cmdline,omitempty"`
-	ParentChain    string    `json:"parent_chain,omitempty"`
-	ReceivedAt     time.Time `json:"received_at"`
-	Deadline       time.Time `json:"deadline"`
-	MemoryKey      string    `json:"-"`
+	ID             string            `json:"id"`
+	KeyFormat      string            `json:"key_format"`
+	KeyFingerprint string            `json:"key_fingerprint"`
+	KeyComment     string            `json:"key_comment,omitempty"`
+	ClientPID      int               `json:"client_pid"`
+	ClientExe      string            `json:"client_exe,omitempty"`
+	ClientCmdline  string            `json:"client_cmdline,omitempty"`
+	ParentChain    string            `json:"parent_chain,omitempty"`
+	ReceivedAt     time.Time         `json:"received_at"`
+	Deadline       time.Time         `json:"deadline"`
+	Scopes         []process.Summary `json:"scopes,omitempty"`
+	DefaultScope   int               `json:"default_scope"`
+	ScopeAutomatic bool              `json:"scope_automatic,omitempty"`
 }
 
 func (request Request) KeyName() string {
@@ -100,6 +103,20 @@ type pendingEntry struct {
 	ready    chan Result
 }
 
+type grantKey struct {
+	Fingerprint string
+	Process     process.Instance
+}
+
+func (request Request) hasScope(instance process.Instance) bool {
+	for _, scope := range request.Scopes {
+		if scope.Instance() == instance {
+			return true
+		}
+	}
+	return false
+}
+
 type Coordinator struct {
 	timeout     time.Duration
 	rememberTTL time.Duration
@@ -109,7 +126,7 @@ type Coordinator struct {
 	mu          sync.Mutex
 	nextID      int
 	pending     map[string]*pendingEntry
-	remember    map[string]time.Time
+	remember    map[grantKey]time.Time
 	controllers int
 	nextSubID   int
 	subscribers map[int]chan Event
@@ -128,7 +145,7 @@ func NewCoordinator(timeout time.Duration, rememberTTL time.Duration, notifier n
 		notifier:    notifier,
 		logger:      logger,
 		pending:     map[string]*pendingEntry{},
-		remember:    map[string]time.Time{},
+		remember:    map[grantKey]time.Time{},
 		subscribers: map[int]chan Event{},
 	}
 }
@@ -145,7 +162,7 @@ func (coordinator *Coordinator) Submit(ctx context.Context, request Request) (Re
 	now := time.Now()
 
 	coordinator.mu.Lock()
-	if coordinator.rememberedLocked(request.MemoryKey, now) {
+	if scope, remembered := coordinator.rememberedLocked(request, now); remembered {
 		coordinator.mu.Unlock()
 		coordinator.logger.Info(
 			"signature request allowed by remembered decision",
@@ -154,6 +171,8 @@ func (coordinator *Coordinator) Submit(ctx context.Context, request Request) (Re
 			"client_pid", request.ClientPID,
 			"client_exe", request.ClientExe,
 			"client_cmdline", request.ClientCmdline,
+			"scope_pid", scope.PID,
+			"scope_start_time", scope.StartTime,
 		)
 		return Result{Outcome: OutcomeAllowed, Source: SourceMemory}, nil
 	}
@@ -175,6 +194,8 @@ func (coordinator *Coordinator) Submit(ctx context.Context, request Request) (Re
 		"client_pid", request.ClientPID,
 		"client_exe", request.ClientExe,
 		"client_cmdline", request.ClientCmdline,
+		"command_scopes", request.Scopes,
+		"default_scope", request.DefaultScope,
 	)
 	if ringDoorbell {
 		coordinator.notifyPending(request)
@@ -195,11 +216,10 @@ func (coordinator *Coordinator) Submit(ctx context.Context, request Request) (Re
 	return result, result.Err()
 }
 
-// Decide resolves the pending request with the given id. The decision also
-// applies to every other pending request sharing its memory key, so a burst of
-// identical requests clears with one action. A positive remember duration
-// additionally stores an allow decision for Submit to replay until it expires.
-func (coordinator *Coordinator) Decide(id string, allow bool, remember time.Duration) error {
+// Decide allows or denies a pending signature. Remembering an allow covers
+// the selected command instance and its descendants for this key only.
+// One-shot decisions cover requests from the same requester instance.
+func (coordinator *Coordinator) Decide(id string, allow bool, remember time.Duration, scopeIndex int) error {
 	coordinator.mu.Lock()
 	defer coordinator.mu.Unlock()
 	entry, ok := coordinator.pending[id]
@@ -213,23 +233,41 @@ func (coordinator *Coordinator) Decide(id string, allow bool, remember time.Dura
 	if allow {
 		outcome = OutcomeAllowed
 	}
-	resolved := 0
-	for _, candidate := range coordinator.pending {
-		sameKey := entry.request.MemoryKey != "" && candidate.request.MemoryKey == entry.request.MemoryKey
-		if candidate.resolved || (candidate != entry && !sameKey) {
-			continue
+	remembering := allow && remember > 0 && coordinator.rememberTTL > 0
+	var instance process.Instance
+	if remembering {
+		if scopeIndex < 0 || scopeIndex >= len(entry.request.Scopes) {
+			return fmt.Errorf("invalid command scope %d", scopeIndex)
 		}
-		coordinator.resolveLocked(candidate, Result{Outcome: outcome, Source: SourceController})
-		resolved++
-	}
-	if allow && remember > 0 && coordinator.rememberTTL > 0 && entry.request.MemoryKey != "" {
-		coordinator.remember[entry.request.MemoryKey] = time.Now().Add(remember)
+		scope := entry.request.Scopes[scopeIndex]
+		instance = scope.Instance()
+		if !instance.Alive() {
+			return fmt.Errorf("command scope pid %d has exited", instance.PID)
+		}
+		coordinator.remember[grantKey{Fingerprint: entry.request.KeyFingerprint, Process: instance}] = time.Now().Add(remember)
 		coordinator.logger.Info(
 			"remembered allow decision",
 			"remember_ttl", remember,
 			"key_name", entry.request.KeyName(),
-			"client_cmdline", entry.request.ClientCmdline,
+			"key_fingerprint", entry.request.KeyFingerprint,
+			"scope_pid", scope.PID,
+			"scope_start_time", scope.StartTime,
+			"scope_cmdline", process.CommandLine(scope.Cmdline),
 		)
+	} else if len(entry.request.Scopes) > 0 && entry.request.Scopes[0].PID == entry.request.ClientPID {
+		instance = entry.request.Scopes[0].Instance()
+	}
+	resolved := 0
+	for _, candidate := range coordinator.pending {
+		sameScope := instance.StartTime != 0 && candidate.request.KeyFingerprint == entry.request.KeyFingerprint && candidate.request.hasScope(instance)
+		if !remembering {
+			sameScope = sameScope && candidate.request.ClientPID == entry.request.ClientPID
+		}
+		if candidate.resolved || (candidate != entry && !sameScope) {
+			continue
+		}
+		coordinator.resolveLocked(candidate, Result{Outcome: outcome, Source: SourceController})
+		resolved++
 	}
 	coordinator.logger.Info("controller decision applied", "request_id", id, "outcome", string(outcome), "resolved", resolved)
 	return nil
@@ -331,22 +369,19 @@ func (coordinator *Coordinator) hasPendingFingerprint(fingerprint string) bool {
 	return false
 }
 
-// rememberedLocked reports whether a still-valid remembered decision covers
-// the memory key; expired entries are dropped on the way. The caller must hold
-// coordinator.mu.
-func (coordinator *Coordinator) rememberedLocked(memoryKey string, now time.Time) bool {
-	if memoryKey == "" {
-		return false
+// rememberedLocked requires both an unexpired grant and its original live
+// process instance. The caller must hold coordinator.mu.
+func (coordinator *Coordinator) rememberedLocked(request Request, now time.Time) (process.Instance, bool) {
+	for key, expiry := range coordinator.remember {
+		if !now.Before(expiry) || !key.Process.Alive() {
+			delete(coordinator.remember, key)
+			continue
+		}
+		if key.Fingerprint == request.KeyFingerprint && request.hasScope(key.Process) {
+			return key.Process, true
+		}
 	}
-	expiry, ok := coordinator.remember[memoryKey]
-	if !ok {
-		return false
-	}
-	if now.After(expiry) {
-		delete(coordinator.remember, memoryKey)
-		return false
-	}
-	return true
+	return process.Instance{}, false
 }
 
 // broadcast delivers event to every subscriber without blocking; the caller

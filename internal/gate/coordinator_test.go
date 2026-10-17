@@ -4,11 +4,14 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"os"
+	"os/exec"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/YewFence/bw-ssh-agent-notifier/internal/notify"
+	"github.com/YewFence/bw-ssh-agent-notifier/internal/process"
 )
 
 type countingNotifier struct {
@@ -40,376 +43,370 @@ func newTestCoordinator(timeout time.Duration, notifier notify.Notifier) *Coordi
 }
 
 func testRequest(fingerprint string) Request {
+	info, err := process.Inspect(os.Getpid(), 0)
+	if err != nil {
+		panic(err)
+	}
 	return Request{
-		KeyFormat:      "ssh-ed25519",
-		KeyFingerprint: fingerprint,
-		KeyComment:     "test-key",
-		ClientPID:      4242,
-		ClientExe:      "/usr/bin/ssh",
-		ClientCmdline:  "ssh git@github.com",
-		ParentChain:    "ssh <- git <- jj",
+		KeyFormat: "ssh-ed25519", KeyFingerprint: fingerprint, KeyComment: "test-key",
+		ClientPID: info.PID, ClientExe: info.Exe, ClientCmdline: process.CommandLine(info.Cmdline),
+		Scopes: process.CommandScopes(info),
 	}
 }
 
-func requestWithMemoryKey(fingerprint string, memoryKey string) Request {
-	request := testRequest(fingerprint)
-	request.MemoryKey = memoryKey
-	return request
+func submitPending(t *testing.T, coordinator *Coordinator, request Request) (Request, <-chan Result) {
+	t.Helper()
+	events, cancel := coordinator.Subscribe()
+	defer cancel()
+	results := make(chan Result, 1)
+	go func() {
+		result, err := coordinator.Submit(t.Context(), request)
+		if (err == nil) != (result.Outcome == OutcomeAllowed) {
+			t.Errorf("Submit() = (%+v, %v), inconsistent outcome and error", result, err)
+		}
+		results <- result
+	}()
+	pending := nextEvent(t, events, EventPending)
+	return pending.Request, results
 }
 
 func TestSubmitDeniedWithoutController(t *testing.T) {
 	notifier := &countingNotifier{}
-	coordinator := newTestCoordinator(100*time.Millisecond, notifier)
-
-	result, err := coordinator.Submit(context.Background(), testRequest("SHA256:aaa"))
-
-	if result.Outcome != OutcomeDenied || result.Source != SourceTimeout {
-		t.Fatalf("Submit() result = %+v, want denied/timeout", result)
-	}
-	if err == nil {
-		t.Fatal("Submit() error = nil, want error")
+	coordinator := newTestCoordinator(30*time.Millisecond, notifier)
+	result, err := coordinator.Submit(t.Context(), testRequest("SHA256:aaa"))
+	if result.Outcome != OutcomeDenied || result.Source != SourceTimeout || err == nil {
+		t.Fatalf("Submit() = %+v, %v; want denied/timeout", result, err)
 	}
 	if got := notifier.count("SSH signature denied"); got != 1 {
 		t.Fatalf("denied notifications = %d, want 1", got)
 	}
 	if got := notifier.count("SSH signature request"); got != 1 {
-		t.Fatalf("pending notifications = %d, want 0", got)
+		t.Fatalf("pending notifications = %d, want 1", got)
 	}
 }
 
 func TestSubmitControllerDecision(t *testing.T) {
-	for _, tc := range []struct {
-		name    string
-		allow   bool
-		outcome Outcome
-	}{
-		{"allow", true, OutcomeAllowed},
-		{"deny", false, OutcomeDenied},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			coordinator := newTestCoordinator(100*time.Millisecond, notify.Noop())
-			coordinator.ControllerConnected()
-			events, cancel := coordinator.Subscribe()
-			defer cancel()
-
-			results := make(chan Result, 1)
-			go func() {
-				result, err := coordinator.Submit(context.Background(), testRequest("SHA256:bbb"))
-				if (err == nil) != (result.Outcome == OutcomeAllowed) {
-					t.Errorf("Submit() = (%+v, %v), inconsistent outcome and error", result, err)
-				}
-				results <- result
-			}()
-
-			event := nextEvent(t, events, EventPending)
-			if event.Request.KeyComment != "test-key" {
-				t.Fatalf("pending event comment = %q, want test-key", event.Request.KeyComment)
-			}
-
-			if err := coordinator.Decide(event.Request.ID, tc.allow, 0); err != nil {
-				t.Fatalf("Decide() error = %v", err)
-			}
-
-			result := <-results
-			if result.Outcome != tc.outcome || result.Source != SourceController {
-				t.Fatalf("Submit() result = %+v, want %s/controller", result, tc.outcome)
-			}
-
-			resolved := nextEvent(t, events, EventResolved)
-			if resolved.ID != event.Request.ID || resolved.Result.Outcome != tc.outcome {
-				t.Fatalf("resolved event = %+v, want id %q outcome %s", resolved, event.Request.ID, tc.outcome)
-			}
-		})
+	for _, allow := range []bool{false, true} {
+		coordinator := newTestCoordinator(time.Second, notify.Noop())
+		events, cancel := coordinator.Subscribe()
+		pending, results := submitPending(t, coordinator, testRequest("SHA256:bbb"))
+		if pending.KeyComment != "test-key" {
+			t.Fatalf("pending comment = %q, want test-key", pending.KeyComment)
+		}
+		if err := coordinator.Decide(pending.ID, allow, 0, 0); err != nil {
+			t.Fatal(err)
+		}
+		want := OutcomeDenied
+		if allow {
+			want = OutcomeAllowed
+		}
+		if result := <-results; result.Outcome != want || result.Source != SourceController {
+			t.Fatalf("Submit() = %+v, want %s/controller", result, want)
+		}
+		resolved := nextEvent(t, events, EventResolved)
+		if resolved.ID != pending.ID || resolved.Result.Outcome != want {
+			t.Fatalf("resolved = %+v, want %s/%s", resolved, pending.ID, want)
+		}
+		cancel()
 	}
 }
 
 func TestSubmitTimeout(t *testing.T) {
 	coordinator := newTestCoordinator(30*time.Millisecond, notify.Noop())
-	coordinator.ControllerConnected()
-
 	start := time.Now()
-	result, err := coordinator.Submit(context.Background(), testRequest("SHA256:ccc"))
-	elapsed := time.Since(start)
-
-	if result.Outcome != OutcomeDenied || result.Source != SourceTimeout {
-		t.Fatalf("Submit() result = %+v, want denied/timeout", result)
+	result, err := coordinator.Submit(t.Context(), testRequest("SHA256:ccc"))
+	if result.Outcome != OutcomeDenied || result.Source != SourceTimeout || err == nil {
+		t.Fatalf("Submit() = %+v, %v; want denied/timeout", result, err)
 	}
-	if err == nil {
-		t.Fatal("Submit() error = nil, want error")
-	}
-	if elapsed < 25*time.Millisecond {
-		t.Fatalf("Submit() returned after %s, want a timeout wait", elapsed)
+	if elapsed := time.Since(start); elapsed < 25*time.Millisecond {
+		t.Fatalf("Submit() returned after %s, want timeout wait", elapsed)
 	}
 }
 
 func TestSubmitShutdownContext(t *testing.T) {
-	coordinator := newTestCoordinator(100*time.Millisecond, notify.Noop())
-	coordinator.ControllerConnected()
-	ctx, cancel := context.WithCancel(context.Background())
-
+	coordinator := newTestCoordinator(time.Second, notify.Noop())
+	ctx, cancel := context.WithCancel(t.Context())
+	events, cancelEvents := coordinator.Subscribe()
+	defer cancelEvents()
 	results := make(chan Result, 1)
 	go func() {
 		result, _ := coordinator.Submit(ctx, testRequest("SHA256:ddd"))
 		results <- result
 	}()
-
-	events, cancelEvents := coordinator.Subscribe()
-	defer cancelEvents()
 	nextEvent(t, events, EventPending)
 	cancel()
-
-	result := <-results
-	if result.Outcome != OutcomeDenied || result.Source != SourceShutdown {
-		t.Fatalf("Submit() result = %+v, want denied/shutdown", result)
+	if result := <-results; result.Outcome != OutcomeDenied || result.Source != SourceShutdown {
+		t.Fatalf("Submit() = %+v, want denied/shutdown", result)
 	}
 }
 
 func TestDecideUnknownRequest(t *testing.T) {
-	coordinator := newTestCoordinator(100*time.Millisecond, notify.Noop())
-	coordinator.ControllerConnected()
-
-	if err := coordinator.Decide("404", true, 0); err == nil {
-		t.Fatal("Decide() error = nil, want error for unknown id")
+	coordinator := newTestCoordinator(time.Second, notify.Noop())
+	if err := coordinator.Decide("404", true, 0, 0); err == nil {
+		t.Fatal("expected error for unknown id")
 	}
 }
 
 func TestSubmitAllowedByRememberedDecision(t *testing.T) {
 	notifier := &countingNotifier{}
-	coordinator := newTestCoordinator(100*time.Millisecond, notifier)
-	coordinator.ControllerConnected()
-	events, cancel := coordinator.Subscribe()
-	defer cancel()
-
-	results := make(chan Result, 1)
-	go func() {
-		result, _ := coordinator.Submit(t.Context(), requestWithMemoryKey("SHA256:mem", "mem-A"))
-		results <- result
-	}()
-	event := nextEvent(t, events, EventPending)
-	if err := coordinator.Decide(event.Request.ID, true, time.Minute); err != nil {
-		t.Fatalf("Decide() error = %v", err)
+	coordinator := newTestCoordinator(time.Second, notifier)
+	request := testRequest("SHA256:mem")
+	pending, results := submitPending(t, coordinator, request)
+	if err := coordinator.Decide(pending.ID, true, time.Minute, 0); err != nil {
+		t.Fatal(err)
 	}
 	if result := <-results; result.Source != SourceController {
-		t.Fatalf("first Submit() result = %+v, want controller decision", result)
+		t.Fatalf("first decision = %+v, want controller", result)
 	}
-
-	replay, err := coordinator.Submit(t.Context(), requestWithMemoryKey("SHA256:mem", "mem-A"))
-
-	if replay.Outcome != OutcomeAllowed || replay.Source != SourceMemory {
-		t.Fatalf("replay Submit() = (%+v, %v), want allowed/memory", replay, err)
+	replay, err := coordinator.Submit(t.Context(), request)
+	if replay.Outcome != OutcomeAllowed || replay.Source != SourceMemory || err != nil {
+		t.Fatalf("replay = %+v, %v; want allowed/memory", replay, err)
 	}
 	if got := notifier.count("SSH signature request"); got != 1 {
-		t.Fatalf("pending notifications = %d, want 1 (replay must be silent)", got)
+		t.Fatalf("pending notifications = %d, want 1", got)
 	}
 }
 
 func TestRememberedDecisionExpires(t *testing.T) {
-	coordinator := NewCoordinator(80*time.Millisecond, time.Minute, notify.Noop(), slog.New(slog.NewTextHandler(io.Discard, nil)))
-	coordinator.ControllerConnected()
-	events, cancel := coordinator.Subscribe()
-	defer cancel()
-
-	results := make(chan Result, 1)
-	go func() {
-		result, _ := coordinator.Submit(t.Context(), requestWithMemoryKey("SHA256:exp", "mem-B"))
-		results <- result
-	}()
-	event := nextEvent(t, events, EventPending)
-	if err := coordinator.Decide(event.Request.ID, true, 40*time.Millisecond); err != nil {
-		t.Fatalf("Decide() error = %v", err)
+	coordinator := newTestCoordinator(30*time.Millisecond, notify.Noop())
+	request := testRequest("SHA256:exp")
+	pending, results := submitPending(t, coordinator, request)
+	if err := coordinator.Decide(pending.ID, true, time.Millisecond, 0); err != nil {
+		t.Fatal(err)
 	}
 	if result := <-results; result.Source != SourceController {
-		t.Fatalf("first Submit() result = %+v, want controller decision", result)
+		t.Fatalf("first decision = %+v, want controller", result)
 	}
-
-	time.Sleep(60 * time.Millisecond)
-	replay, err := coordinator.Submit(t.Context(), requestWithMemoryKey("SHA256:exp", "mem-B"))
-
-	if replay.Outcome != OutcomeDenied || replay.Source != SourceTimeout {
-		t.Fatalf("expired replay Submit() = (%+v, %v), want denied/timeout (re-asked)", replay, err)
+	time.Sleep(5 * time.Millisecond)
+	replay, err := coordinator.Submit(t.Context(), request)
+	if replay.Outcome != OutcomeDenied || replay.Source != SourceTimeout || err == nil {
+		t.Fatalf("expired replay = %+v, %v; want denied/timeout", replay, err)
 	}
 }
 
 func TestRememberDisabledIgnoresControllerRemember(t *testing.T) {
-	coordinator := NewCoordinator(100*time.Millisecond, 0, notify.Noop(), slog.New(slog.NewTextHandler(io.Discard, nil)))
-	coordinator.ControllerConnected()
-	events, cancel := coordinator.Subscribe()
-	defer cancel()
-
-	results := make(chan Result, 1)
-	go func() {
-		result, _ := coordinator.Submit(t.Context(), requestWithMemoryKey("SHA256:off", "mem-C"))
-		results <- result
-	}()
-	event := nextEvent(t, events, EventPending)
-	if err := coordinator.Decide(event.Request.ID, true, time.Hour); err != nil {
-		t.Fatalf("Decide() error = %v", err)
+	coordinator := NewCoordinator(30*time.Millisecond, 0, notify.Noop(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	request := testRequest("SHA256:off")
+	pending, results := submitPending(t, coordinator, request)
+	if err := coordinator.Decide(pending.ID, true, time.Hour, 0); err != nil {
+		t.Fatal(err)
 	}
 	<-results
-	coordinator.ControllerDisconnected()
-
-	replay, err := coordinator.Submit(t.Context(), requestWithMemoryKey("SHA256:off", "mem-C"))
-
-	if replay.Outcome != OutcomeDenied || replay.Source != SourceTimeout {
-		t.Fatalf("replay Submit() = (%+v, %v), want timeout not silent allow", replay, err)
+	replay, err := coordinator.Submit(t.Context(), request)
+	if replay.Outcome != OutcomeDenied || replay.Source != SourceTimeout || err == nil {
+		t.Fatalf("replay = %+v, %v; want denied/timeout", replay, err)
 	}
 }
 
 func TestDecideDenyDoesNotRemember(t *testing.T) {
-	coordinator := newTestCoordinator(100*time.Millisecond, notify.Noop())
-	coordinator.ControllerConnected()
-	events, cancel := coordinator.Subscribe()
-	defer cancel()
-
-	results := make(chan Result, 1)
-	go func() {
-		result, _ := coordinator.Submit(t.Context(), requestWithMemoryKey("SHA256:dny", "mem-D"))
-		results <- result
-	}()
-	event := nextEvent(t, events, EventPending)
-	if err := coordinator.Decide(event.Request.ID, false, time.Hour); err != nil {
-		t.Fatalf("Decide() error = %v", err)
+	coordinator := newTestCoordinator(30*time.Millisecond, notify.Noop())
+	request := testRequest("SHA256:dny")
+	pending, results := submitPending(t, coordinator, request)
+	if err := coordinator.Decide(pending.ID, false, time.Hour, 0); err != nil {
+		t.Fatal(err)
 	}
 	if result := <-results; result.Outcome != OutcomeDenied {
-		t.Fatalf("first Submit() result = %+v, want denied", result)
+		t.Fatalf("first decision = %+v, want denied", result)
 	}
-	coordinator.ControllerDisconnected()
-
-	replay, _ := coordinator.Submit(t.Context(), requestWithMemoryKey("SHA256:dny", "mem-D"))
-
-	if replay.Outcome != OutcomeDenied || replay.Source != SourceTimeout {
-		t.Fatalf("replay Submit() = %+v, want timeout after deny", replay)
+	replay, err := coordinator.Submit(t.Context(), request)
+	if replay.Outcome != OutcomeDenied || replay.Source != SourceTimeout || err == nil {
+		t.Fatalf("replay = %+v, %v; want denied/timeout", replay, err)
 	}
 }
 
-func TestDecideBatchResolvesSameMemoryKey(t *testing.T) {
-	coordinator := newTestCoordinator(100*time.Millisecond, notify.Noop())
-	coordinator.ControllerConnected()
-	events, cancel := coordinator.Subscribe()
-	defer cancel()
-
-	results := make(chan Result, 2)
-	for _, fingerprint := range []string{"SHA256:b1", "SHA256:b2"} {
-		go func(fingerprint string) {
-			result, _ := coordinator.Submit(t.Context(), requestWithMemoryKey(fingerprint, "mem-E"))
-			results <- result
-		}(fingerprint)
+func TestDecideBatchResolvesSameRequesterAndKey(t *testing.T) {
+	coordinator := newTestCoordinator(time.Second, notify.Noop())
+	first, results1 := submitPending(t, coordinator, testRequest("SHA256:batch"))
+	second, results2 := submitPending(t, coordinator, testRequest("SHA256:batch"))
+	if err := coordinator.Decide(first.ID, true, 0, 0); err != nil {
+		t.Fatal(err)
 	}
-
-	pending := make([]Event, 0, 2)
-	waitFor(t, func() bool {
-		for {
-			select {
-			case event := <-events:
-				if event.Kind == EventPending {
-					pending = append(pending, event)
-				}
-			default:
-				return len(pending) == 2
-			}
-		}
-	})
-	if err := coordinator.Decide(pending[0].Request.ID, true, 0); err != nil {
-		t.Fatalf("Decide() error = %v", err)
-	}
-
-	for range 2 {
+	for _, results := range []<-chan Result{results1, results2} {
 		if result := <-results; result.Outcome != OutcomeAllowed || result.Source != SourceController {
-			t.Fatalf("batched Submit() result = %+v, want allowed/controller", result)
+			t.Fatalf("batch result = %+v, want allowed/controller", result)
 		}
 	}
-	if err := coordinator.Decide(pending[1].Request.ID, true, 0); err == nil {
-		t.Fatal("late Decide() error = nil, want already-resolved error")
+	if err := coordinator.Decide(second.ID, true, 0, 0); err == nil {
+		t.Fatal("expected error for already resolved request")
 	}
 }
 
 func TestDecideTwiceRejects(t *testing.T) {
-	coordinator := newTestCoordinator(100*time.Millisecond, notify.Noop())
-	coordinator.ControllerConnected()
-	events, cancel := coordinator.Subscribe()
-	defer cancel()
-
-	results := make(chan Result, 1)
-	go func() {
-		result, _ := coordinator.Submit(context.Background(), testRequest("SHA256:eee"))
-		results <- result
-	}()
-
-	event := nextEvent(t, events, EventPending)
-	if err := coordinator.Decide(event.Request.ID, true, 0); err != nil {
-		t.Fatalf("first Decide() error = %v", err)
+	coordinator := newTestCoordinator(time.Second, notify.Noop())
+	pending, results := submitPending(t, coordinator, testRequest("SHA256:twice"))
+	if err := coordinator.Decide(pending.ID, true, 0, 0); err != nil {
+		t.Fatal(err)
 	}
-	if err := coordinator.Decide(event.Request.ID, true, 0); err == nil {
-		t.Fatal("second Decide() error = nil, want already-resolved error")
+	if err := coordinator.Decide(pending.ID, true, 0, 0); err == nil {
+		t.Fatal("expected error for already resolved request")
 	}
 	<-results
 }
 
 func TestDoorbellRingsOncePerFingerprint(t *testing.T) {
 	notifier := &countingNotifier{}
-	coordinator := newTestCoordinator(100*time.Millisecond, notifier)
-	coordinator.ControllerConnected()
-	events, cancel := coordinator.Subscribe()
-	defer cancel()
-
-	results := make(chan Result, 2)
-	for range 2 {
-		go func() {
-			result, _ := coordinator.Submit(context.Background(), testRequest("SHA256:fff"))
-			results <- result
-		}()
+	coordinator := newTestCoordinator(time.Second, notifier)
+	first, results1 := submitPending(t, coordinator, testRequest("SHA256:bell"))
+	_, results2 := submitPending(t, coordinator, testRequest("SHA256:bell"))
+	if err := coordinator.Decide(first.ID, true, 0, 0); err != nil {
+		t.Fatal(err)
 	}
-
-	pending := make([]Event, 0, 2)
-	waitFor(t, func() bool {
-		for {
-			select {
-			case event := <-events:
-				if event.Kind == EventPending {
-					pending = append(pending, event)
-				}
-			default:
-				return len(pending) == 2
-			}
-		}
-	})
-	for _, event := range pending {
-		if err := coordinator.Decide(event.Request.ID, true, 0); err != nil {
-			t.Fatalf("Decide(%q) error = %v", event.Request.ID, err)
-		}
-	}
-	<-results
-	<-results
-
+	<-results1
+	<-results2
 	if got := notifier.count("SSH signature request"); got != 1 {
-		t.Fatalf("pending notifications = %d, want 1 for duplicate fingerprint", got)
+		t.Fatalf("pending notifications = %d, want 1", got)
+	}
+}
+
+func TestRememberedAncestorCoversDifferentHelpers(t *testing.T) {
+	coordinator := newTestCoordinator(time.Second, notify.Noop())
+	owner := testRequest("SHA256:scope").Scopes[0]
+	request := testRequest("SHA256:scope")
+	request.ClientPID = 4242
+	request.Scopes = []process.Summary{
+		{PID: 4242, StartTime: 100, Exe: "/usr/bin/ssh", Cmdline: []string{"ssh", "fetch"}},
+		{PID: 4241, StartTime: 90, Exe: "/usr/bin/git", Cmdline: []string{"git", "ls-remote"}},
+		owner,
+	}
+	first, results1 := submitPending(t, coordinator, request)
+	sibling := request
+	sibling.ClientPID = 4250
+	sibling.Scopes = []process.Summary{{PID: 4250, StartTime: 110, Exe: "/usr/bin/ssh-keygen"}, owner}
+	_, results2 := submitPending(t, coordinator, sibling)
+	if err := coordinator.Decide(first.ID, true, time.Minute, 2); err != nil {
+		t.Fatal(err)
+	}
+	for _, results := range []<-chan Result{results1, results2} {
+		if result := <-results; result.Outcome != OutcomeAllowed || result.Source != SourceController {
+			t.Fatalf("batch result = %+v, want allowed/controller", result)
+		}
+	}
+	replay := sibling
+	replay.ClientPID = 4260
+	replay.Scopes = []process.Summary{{PID: 4260, StartTime: 120, Exe: "/usr/bin/ssh"}, owner}
+	result, err := coordinator.Submit(t.Context(), replay)
+	if result.Source != SourceMemory || err != nil {
+		t.Fatalf("different helper replay = %+v, %v; want memory", result, err)
+	}
+}
+
+func TestRememberedScopeDoesNotCoverOtherKeysOrInstances(t *testing.T) {
+	for _, mutation := range []string{"key", "pid", "start time", "missing ancestry"} {
+		t.Run(mutation, func(t *testing.T) {
+			coordinator := newTestCoordinator(30*time.Millisecond, notify.Noop())
+			request := testRequest("SHA256:original")
+			pending, results := submitPending(t, coordinator, request)
+			if err := coordinator.Decide(pending.ID, true, time.Minute, 0); err != nil {
+				t.Fatal(err)
+			}
+			<-results
+			replay := testRequest("SHA256:original")
+			switch mutation {
+			case "key":
+				replay.KeyFingerprint = "SHA256:other"
+			case "pid":
+				replay.Scopes[0].PID++
+			case "start time":
+				replay.Scopes[0].StartTime++
+			case "missing ancestry":
+				replay.Scopes = nil
+			}
+			result, err := coordinator.Submit(t.Context(), replay)
+			if result.Outcome != OutcomeDenied || result.Source != SourceTimeout || err == nil {
+				t.Fatalf("unrelated replay = %+v, %v; want denied/timeout", result, err)
+			}
+		})
+	}
+}
+
+func TestRememberedScopeEndsWhenOwnerExits(t *testing.T) {
+	command := exec.Command("sleep", "60")
+	if err := command.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = command.Process.Kill(); _ = command.Wait() })
+	info, err := process.Inspect(command.Process.Pid, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := testRequest("SHA256:exit")
+	request.Scopes = process.CommandScopes(info)
+	request.ClientPID = info.PID
+	coordinator := newTestCoordinator(30*time.Millisecond, notify.Noop())
+	pending, results := submitPending(t, coordinator, request)
+	if err := coordinator.Decide(pending.ID, true, time.Hour, 0); err != nil {
+		t.Fatal(err)
+	}
+	<-results
+	if err := command.Process.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	_ = command.Wait()
+	result, err := coordinator.Submit(t.Context(), request)
+	if result.Outcome != OutcomeDenied || result.Source != SourceTimeout || err == nil {
+		t.Fatalf("exited owner replay = %+v, %v; want denied/timeout", result, err)
+	}
+}
+
+func TestDecideRejectsInvalidOrExitedScope(t *testing.T) {
+	coordinator := newTestCoordinator(time.Second, notify.Noop())
+	request := testRequest("SHA256:invalid")
+	request.Scopes[0].StartTime++
+	pending, results := submitPending(t, coordinator, request)
+	for _, scope := range []int{-1, 1, 0} {
+		if err := coordinator.Decide(pending.ID, true, time.Minute, scope); err == nil {
+			t.Fatalf("expected invalid/exited scope error for %d", scope)
+		}
+	}
+	if err := coordinator.Decide(pending.ID, false, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	if result := <-results; result.Outcome != OutcomeDenied {
+		t.Fatalf("invalid scope request = %+v, want denied", result)
+	}
+}
+
+func TestOneShotDoesNotAuthorizeOtherKeysOrSiblingCommands(t *testing.T) {
+	for _, otherKey := range []bool{false, true} {
+		coordinator := newTestCoordinator(time.Second, notify.Noop())
+		request := testRequest("SHA256:one-shot")
+		first, results1 := submitPending(t, coordinator, request)
+		other := testRequest("SHA256:one-shot")
+		if otherKey {
+			other.KeyFingerprint = "SHA256:other-key"
+		} else {
+			other.ClientPID++
+			other.Scopes = append([]process.Summary{{PID: other.ClientPID, StartTime: 123}}, other.Scopes...)
+		}
+		second, results2 := submitPending(t, coordinator, other)
+		if err := coordinator.Decide(first.ID, true, 0, 0); err != nil {
+			t.Fatal(err)
+		}
+		if result := <-results1; result.Outcome != OutcomeAllowed {
+			t.Fatalf("first result = %+v, want allowed", result)
+		}
+		if err := coordinator.Decide(second.ID, false, 0, 0); err != nil {
+			t.Fatalf("unrelated request was unexpectedly resolved: %v", err)
+		}
+		if result := <-results2; result.Outcome != OutcomeDenied {
+			t.Fatalf("unrelated result = %+v, want denied", result)
+		}
 	}
 }
 
 func nextEvent(t *testing.T, events <-chan Event, kind EventKind) Event {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
 	for {
 		select {
 		case event := <-events:
 			if event.Kind == kind {
 				return event
 			}
-		case <-time.After(time.Until(deadline)):
+		case <-timer.C:
 			t.Fatalf("event %s never arrived", kind)
 			return Event{}
 		}
 	}
-}
-
-func waitFor(t *testing.T, condition func() bool) bool {
-	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if condition() {
-			return true
-		}
-		time.Sleep(2 * time.Millisecond)
-	}
-	return condition()
 }

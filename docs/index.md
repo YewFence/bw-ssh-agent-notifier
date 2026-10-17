@@ -15,7 +15,7 @@ hero:
 
 features:
   - title: Signature gate
-    details: Optionally hold every signature request until you allow or deny it in bwsshntfr gate, with remembered decisions keyed by the calling process chain.
+    details: Optionally hold every signature request until you allow or deny it in bwsshntfr gate, with temporary permissions scoped to one command instance and its descendants.
     link: /guide/gate
   - title: Installation
     details: See the repository README for installation options, including mise and source builds.

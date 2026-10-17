@@ -8,6 +8,7 @@ import (
 
 	"github.com/YewFence/bw-ssh-agent-notifier/internal/config"
 	"github.com/YewFence/bw-ssh-agent-notifier/internal/gate"
+	"github.com/YewFence/bw-ssh-agent-notifier/internal/process"
 	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
@@ -63,6 +64,9 @@ type gateModel struct {
 	pickerIndex     int
 	customActive    bool
 	customInput     string
+	scopeSelections map[string]int
+	pickerRequestID string
+	pickerScope     int
 }
 
 func newGateModel(client *gate.ControllerClient) gateModel {
@@ -103,6 +107,10 @@ func (model gateModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (model *gateModel) applyEvent(event gate.ControllerEvent) {
+	selectedID := ""
+	if len(model.requests) > 0 {
+		selectedID = model.requests[model.selected].ID
+	}
 	switch event.Type {
 	case "pending":
 		if event.Request != nil {
@@ -123,6 +131,39 @@ func (model *gateModel) applyEvent(event gate.ControllerEvent) {
 	case "error":
 		model.flash = event.Error
 	}
+	for index, request := range model.requests {
+		if request.ID == selectedID {
+			model.selected = index
+		}
+	}
+	model.clampSelection()
+	for id := range model.scopeSelections {
+		if !model.hasRequest(id) {
+			delete(model.scopeSelections, id)
+		}
+	}
+	if model.pickerRequestID != "" && !model.hasRequest(model.pickerRequestID) {
+		model.pickerActive = false
+		model.customActive = false
+		model.customInput = ""
+		model.pickerRequestID = ""
+	}
+}
+
+func (model gateModel) hasRequest(id string) bool {
+	for _, request := range model.requests {
+		if request.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func (model gateModel) selectedScope(request gate.Request) int {
+	if index, ok := model.scopeSelections[request.ID]; ok {
+		return index
+	}
+	return request.DefaultScope
 }
 
 func (model *gateModel) clampSelection() {
@@ -151,16 +192,35 @@ func (model gateModel) handleKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 			model.selected++
 		}
 		return model, nil
+	case "left", "h", "right", "l":
+		if len(model.requests) == 0 {
+			return model, nil
+		}
+		request := model.requests[model.selected]
+		if len(request.Scopes) == 0 {
+			return model, nil
+		}
+		index := model.selectedScope(request)
+		if message.String() == "left" || message.String() == "h" {
+			index = min(index+1, len(request.Scopes)-1)
+		} else {
+			index = max(index-1, 0)
+		}
+		if model.scopeSelections == nil {
+			model.scopeSelections = make(map[string]int)
+		}
+		model.scopeSelections[request.ID] = index
+		return model, nil
 	case "a", "y":
 		if len(model.requests) == 0 {
 			return model, nil
 		}
-		return model, decideCmd(model.client, model.requests[model.selected].ID, true, 0)
+		return model, decideCmd(model.client, model.requests[model.selected].ID, true, 0, 0)
 	case "d", "n":
 		if len(model.requests) == 0 {
 			return model, nil
 		}
-		return model, decideCmd(model.client, model.requests[model.selected].ID, false, 0)
+		return model, decideCmd(model.client, model.requests[model.selected].ID, false, 0, 0)
 	case "m":
 		if len(model.requests) == 0 {
 			return model, nil
@@ -169,6 +229,13 @@ func (model gateModel) handleKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 			model.flash = "remembering is disabled (--gate-remember-ttl=0)"
 			return model, nil
 		}
+		request := model.requests[model.selected]
+		if len(request.Scopes) == 0 {
+			model.flash = "remembering unavailable: command instance could not be identified"
+			return model, nil
+		}
+		model.pickerRequestID = request.ID
+		model.pickerScope = model.selectedScope(request)
 		model.pickerActive = true
 		model.pickerIndex = defaultPickerIndex(model.rememberDefault)
 		return model, nil
@@ -195,7 +262,7 @@ func (model gateModel) handlePickerKey(message tea.KeyMsg) (tea.Model, tea.Cmd) 
 		if model.pickerIndex < len(rememberPresets) {
 			ttl := rememberPresets[model.pickerIndex]
 			model.pickerActive = false
-			return model, decideCmd(model.client, model.requests[model.selected].ID, true, ttl)
+			return model, decideCmd(model.client, model.pickerRequestID, true, ttl, model.pickerScope)
 		}
 		model.pickerActive = false
 		model.customActive = true
@@ -219,7 +286,7 @@ func (model gateModel) handleCustomKey(message tea.KeyMsg) (tea.Model, tea.Cmd) 
 		}
 		model.customActive = false
 		model.customInput = ""
-		return model, decideCmd(model.client, model.requests[model.selected].ID, true, ttl)
+		return model, decideCmd(model.client, model.pickerRequestID, true, ttl, model.pickerScope)
 	case "backspace":
 		if len(model.customInput) > 0 {
 			model.customInput = model.customInput[:len(model.customInput)-1]
@@ -261,9 +328,9 @@ func parseRememberInput(input string) (time.Duration, error) {
 	return time.Duration(minutes) * time.Minute, nil
 }
 
-func decideCmd(client *gate.ControllerClient, id string, allow bool, remember time.Duration) tea.Cmd {
+func decideCmd(client *gate.ControllerClient, id string, allow bool, remember time.Duration, scopeIndex int) tea.Cmd {
 	return func() tea.Msg {
-		return decideResultMsg{err: client.Decide(id, allow, remember)}
+		return decideResultMsg{err: client.Decide(id, allow, remember, scopeIndex)}
 	}
 }
 
@@ -308,13 +375,23 @@ func (model gateModel) View() string {
 	} else if model.pickerActive {
 		builder.WriteString(model.renderPicker())
 	} else {
-		builder.WriteString(gateDimStyle.Render("[a] allow  [m] allow+remember  [d] deny  [j/k] select  [q] quit"))
+		builder.WriteString(gateDimStyle.Render("[a/y] allow once  [m] allow+remember  [d/n] deny  [j/k or up/down] request  [h/left] parent  [l/right] child  [q] quit"))
 	}
 	if model.flash != "" {
 		builder.WriteString("\n")
-		builder.WriteString(gatePendingStyle.Render(model.flash))
+		builder.WriteString(gatePendingStyle.Render(gateText(model.flash)))
+	}
+	if model.width > 0 {
+		return lipgloss.NewStyle().Width(model.width).Render(builder.String())
 	}
 	return builder.String()
+}
+
+func gateText(text string) string {
+	if strings.ContainsFunc(text, func(char rune) bool { return !strconv.IsPrint(char) }) {
+		return strconv.Quote(text)
+	}
+	return text
 }
 
 func (model gateModel) renderPicker() string {
@@ -342,16 +419,43 @@ func (model gateModel) renderRequest(index int, request gate.Request) string {
 	}
 	remaining := time.Until(request.Deadline).Round(time.Second)
 	lines := []string{
-		fmt.Sprintf("%s#%s  key: %s", cursor, request.ID, keyStyle.Render(request.KeyName())),
-		fmt.Sprintf("     %s", request.ClientCmdline),
-		fmt.Sprintf("     PID %d · %s", request.ClientPID, request.ClientExe),
+		fmt.Sprintf("%s#%s  key: %s", cursor, request.ID, keyStyle.Render(gateText(request.KeyName()))),
+		fmt.Sprintf("     requester: %s", gateText(request.ClientCmdline)),
+		fmt.Sprintf("     PID %d · %s", request.ClientPID, gateText(request.ClientExe)),
 	}
 	if request.ParentChain != "" {
-		lines = append(lines, fmt.Sprintf("     tree: %s", request.ParentChain))
+		lines = append(lines, fmt.Sprintf("     tree: %s", gateText(request.ParentChain)))
 	}
 	lines = append(lines, fmt.Sprintf("     %s  fingerprint: %s", remaining, request.KeyFingerprint))
 	for i := 1; i < len(lines); i++ {
 		lines[i] = gateDimStyle.Render(lines[i])
+	}
+	if len(request.Scopes) > 0 {
+		scopeIndex := model.selectedScope(request)
+		scope := request.Scopes[scopeIndex]
+		labels := make([]string, 0, len(request.Scopes))
+		for i := len(request.Scopes) - 1; i >= 0; i-- {
+			label := gateText(process.ProcessName(request.Scopes[i]))
+			if i == scopeIndex {
+				label = gateAllowStyle.Render("[" + label + "]")
+			}
+			labels = append(labels, label)
+		}
+		selection := "default: requester"
+		if _, manual := model.scopeSelections[request.ID]; manual {
+			selection = "manual selection"
+		} else if request.ScopeAutomatic {
+			selection = "automatic: command group"
+		}
+		lines = append(lines,
+			"     commands (outer to requester): "+strings.Join(labels, " > "),
+			gateTitleStyle.Render(fmt.Sprintf("     remember scope: %s", process.CommandLine(scope.Cmdline))),
+			fmt.Sprintf("     scope PID %d · %s · %s", scope.PID, gateText(scope.Exe), selection),
+			"     [m] permits this command and its descendants to use only this key",
+			"     permission ends when the chosen TTL expires or this command exits",
+		)
+	} else {
+		lines = append(lines, gatePendingStyle.Render("     remember unavailable: command instance could not be identified"))
 	}
 	return strings.Join(lines, "\n")
 }

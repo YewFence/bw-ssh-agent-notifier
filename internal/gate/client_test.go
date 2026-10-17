@@ -44,7 +44,7 @@ func TestControllerClientDecideFlow(t *testing.T) {
 		t.Fatalf("pending event = %+v, want request with SHA256:client", pending.Request)
 	}
 
-	if err := client.Decide(pending.Request.ID, true, 0); err != nil {
+	if err := client.Decide(pending.Request.ID, true, 0, 0); err != nil {
 		t.Fatalf("Decide() error = %v", err)
 	}
 

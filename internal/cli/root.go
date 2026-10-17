@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -66,6 +67,19 @@ func addConfigFlags(cmd *cobra.Command, cfg *config.Config) {
 	flags.StringVar(&cfg.GateMode, "gate", cfg.GateMode, "gate mode: off or confirm (env: WRAPPER_GATE)")
 	flags.DurationVar(&cfg.GateTimeout, "gate-timeout", cfg.GateTimeout, "gate decision timeout before denying a signature (env: WRAPPER_GATE_TIMEOUT)")
 	flags.DurationVar(&cfg.GateRememberTTL, "gate-remember-ttl", cfg.GateRememberTTL, "default gate allow-remember TTL; 0 disables remembering (env: WRAPPER_GATE_REMEMBER_TTL)")
+	groupsOverridden := false
+	flags.Func("gate-command-group", "automatically select a command scope using a JSON argv prefix; repeat for multiple groups (env: WRAPPER_GATE_COMMAND_GROUPS)", func(value string) error {
+		var group []string
+		if err := json.Unmarshal([]byte(value), &group); err != nil {
+			return fmt.Errorf("parse command group: %w", err)
+		}
+		if !groupsOverridden {
+			cfg.GateCommandGroups = nil
+			groupsOverridden = true
+		}
+		cfg.GateCommandGroups = append(cfg.GateCommandGroups, group)
+		return nil
+	})
 	flags.StringVar(&cfg.ControlSocket, "control-socket", cfg.ControlSocket, "gate control Unix socket path (env: WRAPPER_CONTROL_SOCKET)")
 	flags.StringVar(&cfg.LogLevel, "log-level", cfg.LogLevel, "log level: debug, info, warn, error")
 	flags.StringVar(&cfg.LogFormat, "log-format", cfg.LogFormat, "log format: text or json")

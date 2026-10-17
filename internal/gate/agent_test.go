@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"os"
 	"testing"
 	"time"
 
@@ -35,16 +36,16 @@ func newTestKeyring(t *testing.T) (agent.ExtendedAgent, ssh.PublicKey) {
 func newGateClient(t *testing.T, coordinator *Coordinator, upstream agent.ExtendedAgent) agent.ExtendedAgent {
 	t.Helper()
 	clientConn, serverConn := net.Pipe()
+	info, err := process.Inspect(os.Getpid(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
 	gateAgent := &Agent{
 		ConnCtx:     t.Context(),
 		Upstream:    upstream,
 		Coordinator: coordinator,
-		Client: process.Info{
-			PID:     4242,
-			Exe:     "/usr/bin/ssh",
-			Cmdline: []string{"ssh", "git@github.com"},
-		},
-		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Client:      info,
+		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 	go func() {
 		_ = agent.ServeAgent(gateAgent, serverConn)
@@ -60,7 +61,7 @@ func autoAllow(t *testing.T, coordinator *Coordinator) {
 		defer close(done)
 		for event := range events {
 			if event.Kind == EventPending {
-				if err := coordinator.Decide(event.Request.ID, true, 0); err != nil {
+				if err := coordinator.Decide(event.Request.ID, true, 0, 0); err != nil {
 					return
 				}
 			}

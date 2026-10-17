@@ -52,7 +52,11 @@ The gate fails closed: no connected controller or a decision timeout denies the 
 
 ### Remembered decisions
 
-Allowing with `m` stores a remembered decision keyed by `key fingerprint + client command line + normalized parent chain`. The normalization strips shells, multiplexers such as tmux and zellij, terminal emulators, and session infrastructure, because those describe where a command runs, not what it runs. Branch names inside a `git push` or `jj git push` command line survive normalization, so pushing to a different branch always asks again. The TTL is a fixed window (default 1m, configurable, 0 disables), memory is in-RAM only, and a decision applies to every pending request sharing the same key.
+Allowing with `m` stores a grant keyed by `key fingerprint + selected process PID + kernel start time`. A request is covered when that live process instance is the requester or one of its inspected ancestors. Internal helper arguments do not participate in matching. The grant ends when the TTL expires or its owner exits, and cannot transfer to a new invocation or a reused PID. The TTL is a fixed window (default 1m, configurable, 0 disables), and memory is in-RAM only.
+
+The control protocol exposes selectable command summaries with complete argv, executable paths, PIDs, and start times; the controller sends a `scope_index` with its remember decision. The daemon validates the index against the pending request and verifies that the process instance is still alive. Remembering also resolves pending requests covered by that same process and key. One-shot allow and deny decisions only batch requests from the same requester instance and key.
+
+Shells, multiplexers, terminal emulators, and session infrastructure are context rather than selectable scopes. The default selection is the requester. Optional command-group argv prefixes choose the nearest matching command instead; presets only influence selection and never auto-approve. Manual selection is controller-local and persists across state refreshes.
 
 ## Process identification
 
@@ -62,9 +66,10 @@ For Unix socket clients, bw-ssh-agent-notifier reads peer credentials from the k
 /proc/<pid>/exe
 /proc/<pid>/cmdline
 /proc/<pid>/status
+/proc/<pid>/stat
 ```
 
-`/proc/<pid>/status` provides the parent process ID. bw-ssh-agent-notifier follows that parent chain up to the configured depth so logs can show context such as `ssh <- zsh <- foot`.
+`/proc/<pid>/status` provides the parent process ID. bw-ssh-agent-notifier follows that parent chain up to the configured depth so logs can show context such as `ssh <- zsh <- foot`. Kernel process start times and liveness are read through `prometheus/procfs`; gate mode refreshes process inspection for each signature.
 
 Process inspection is best-effort. If the process exits quickly or `/proc` access is limited, forwarding still continues.
 

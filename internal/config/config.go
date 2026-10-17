@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -40,6 +41,7 @@ type Config struct {
 	GateMode            string
 	GateTimeout         time.Duration
 	GateRememberTTL     time.Duration
+	GateCommandGroups   [][]string
 	ControlSocket       string
 }
 
@@ -108,6 +110,11 @@ func FromEnv() (Config, error) {
 		}
 		cfg.GateRememberTTL = timeout
 	}
+	if value := os.Getenv("WRAPPER_GATE_COMMAND_GROUPS"); value != "" {
+		if err := json.Unmarshal([]byte(value), &cfg.GateCommandGroups); err != nil {
+			return Config{}, fmt.Errorf("parse WRAPPER_GATE_COMMAND_GROUPS: %w", err)
+		}
+	}
 	if value := os.Getenv("WRAPPER_CONTROL_SOCKET"); value != "" {
 		cfg.ControlSocket = value
 	}
@@ -156,6 +163,14 @@ func (cfg Config) Validate() error {
 	}
 	if cfg.GateRememberTTL < 0 {
 		return errors.New("gate remember TTL must not be negative")
+	}
+	for _, group := range cfg.GateCommandGroups {
+		if len(group) == 0 || group[0] == "" {
+			return errors.New("gate command group must contain an executable")
+		}
+		if !filepath.IsAbs(group[0]) && filepath.Base(group[0]) != group[0] {
+			return errors.New("gate command group executable must be a name or an absolute path")
+		}
 	}
 	if cfg.GateMode == GateModeConfirm && cfg.ControlSocket == "" {
 		return errors.New("control socket is required when gate is enabled; set XDG_RUNTIME_DIR or WRAPPER_CONTROL_SOCKET")

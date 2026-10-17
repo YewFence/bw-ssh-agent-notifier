@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"strings"
 
 	"github.com/YewFence/bw-ssh-agent-notifier/internal/process"
 	"golang.org/x/crypto/ssh"
@@ -18,11 +17,13 @@ var ErrRejected = errors.New("operation rejected by gate")
 // go through the Coordinator for a decision; every other mutating operation is
 // rejected so nothing can manage keys through the gate.
 type Agent struct {
-	ConnCtx     context.Context
-	Upstream    agent.ExtendedAgent
-	Coordinator *Coordinator
-	Client      process.Info
-	Logger      *slog.Logger
+	ConnCtx       context.Context
+	Upstream      agent.ExtendedAgent
+	Coordinator   *Coordinator
+	Client        process.Info
+	ParentDepth   int
+	CommandGroups [][]string
+	Logger        *slog.Logger
 }
 
 func (gateAgent *Agent) List() ([]*agent.Key, error) {
@@ -38,6 +39,11 @@ func (gateAgent *Agent) SignWithFlags(key ssh.PublicKey, data []byte, flags agen
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	client, _ := process.Inspect(gateAgent.Client.PID, gateAgent.ParentDepth)
+	if client.StartTime != gateAgent.Client.StartTime {
+		return nil, ErrRejected
+	}
+	gateAgent.Client = client
 	if _, err := gateAgent.Coordinator.Submit(ctx, gateAgent.buildRequest(key)); err != nil {
 		return nil, err
 	}
@@ -46,7 +52,8 @@ func (gateAgent *Agent) SignWithFlags(key ssh.PublicKey, data []byte, flags agen
 
 func (gateAgent *Agent) buildRequest(key ssh.PublicKey) Request {
 	clientSummary := process.Summary{PID: gateAgent.Client.PID, Exe: gateAgent.Client.Exe, Cmdline: gateAgent.Client.Cmdline}
-	memoryKey := append([]string{ssh.FingerprintSHA256(key)}, process.MemoryChain(gateAgent.Client)...)
+	scopes := process.CommandScopes(gateAgent.Client)
+	defaultScope, automatic := process.DefaultScope(scopes, gateAgent.CommandGroups)
 	return Request{
 		KeyFormat:      key.Type(),
 		KeyFingerprint: ssh.FingerprintSHA256(key),
@@ -55,7 +62,9 @@ func (gateAgent *Agent) buildRequest(key ssh.PublicKey) Request {
 		ClientExe:      gateAgent.Client.Exe,
 		ClientCmdline:  process.CommandLine(gateAgent.Client.Cmdline),
 		ParentChain:    process.ProcessChain(clientSummary, gateAgent.Client.Parents),
-		MemoryKey:      strings.Join(memoryKey, "\x00"),
+		Scopes:         scopes,
+		DefaultScope:   defaultScope,
+		ScopeAutomatic: automatic,
 	}
 }
 
