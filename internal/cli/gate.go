@@ -360,7 +360,8 @@ var (
 func (model gateModel) View() string {
 	var builder strings.Builder
 	builder.WriteString(gateTitleStyle.Render("bwsshntfr gate"))
-	builder.WriteString(gateDimStyle.Render(fmt.Sprintf(" — SSH signature requests (timeout %s)\n\n", model.timeout)))
+	builder.WriteString(gateDimStyle.Render(fmt.Sprintf(" — SSH signature requests (timeout %s)", model.timeout)))
+	builder.WriteString("\n\n")
 	if len(model.requests) == 0 {
 		builder.WriteString(gateDimStyle.Render("no pending requests; waiting…"))
 		builder.WriteString("\n")
@@ -382,7 +383,7 @@ func (model gateModel) View() string {
 		builder.WriteString(gatePendingStyle.Render(gateText(model.flash)))
 	}
 	if model.width > 0 {
-		return lipgloss.NewStyle().Width(model.width).Render(builder.String())
+		return lipgloss.NewStyle().Width(model.width).AlignHorizontal(lipgloss.Left).Render(builder.String())
 	}
 	return builder.String()
 }
@@ -410,6 +411,29 @@ func (model gateModel) renderPickerChoice(label string, index int) string {
 	return gateDimStyle.Render("  " + label)
 }
 
+const gateFieldWidth = 15
+
+func (model gateModel) renderField(label string, value string) string {
+	prefix := fmt.Sprintf("  %-*s ", gateFieldWidth, label)
+	prefixWidth := len(prefix)
+	prefix = gateDimStyle.Render(prefix)
+	if model.width <= prefixWidth {
+		return prefix + value
+	}
+	value = lipgloss.NewStyle().Width(model.width - prefixWidth).AlignHorizontal(lipgloss.Left).Render(value)
+	return lipgloss.JoinHorizontal(lipgloss.Top, prefix, value)
+}
+
+func (model gateModel) renderEmphasizedField(label string, value string) string {
+	prefix := fmt.Sprintf("  %-*s ", gateFieldWidth, label)
+	prefixWidth := len(prefix)
+	if model.width <= prefixWidth {
+		return gateDimStyle.Render(prefix) + gateTitleStyle.Render(value)
+	}
+	value = lipgloss.NewStyle().Width(model.width - prefixWidth).AlignHorizontal(lipgloss.Left).Render(gateTitleStyle.Render(value))
+	return lipgloss.JoinHorizontal(lipgloss.Top, gateDimStyle.Render(prefix), value)
+}
+
 func (model gateModel) renderRequest(index int, request gate.Request) string {
 	keyStyle := gateTitleStyle
 	cursor := "  "
@@ -419,17 +443,17 @@ func (model gateModel) renderRequest(index int, request gate.Request) string {
 	}
 	remaining := time.Until(request.Deadline).Round(time.Second)
 	lines := []string{
-		fmt.Sprintf("%s#%s  key: %s", cursor, request.ID, keyStyle.Render(gateText(request.KeyName()))),
-		fmt.Sprintf("     requester: %s", gateText(request.ClientCmdline)),
-		fmt.Sprintf("     PID %d · %s", request.ClientPID, gateText(request.ClientExe)),
+		fmt.Sprintf("%s#%s  key: %s  timeout: %s", cursor, request.ID, keyStyle.Render(gateText(request.KeyName())), remaining.String()),
+		model.renderField("requester:", gateText(request.ClientCmdline)),
+		model.renderField("pid:", fmt.Sprintf("%d", request.ClientPID)),
+		model.renderField("executable:", gateText(request.ClientExe)),
 	}
 	if request.ParentChain != "" {
-		lines = append(lines, fmt.Sprintf("     tree: %s", gateText(request.ParentChain)))
+		lines = append(lines, model.renderField("tree:", gateText(request.ParentChain)))
 	}
-	lines = append(lines, fmt.Sprintf("     %s  fingerprint: %s", remaining, request.KeyFingerprint))
-	for i := 1; i < len(lines); i++ {
-		lines[i] = gateDimStyle.Render(lines[i])
-	}
+	lines = append(lines,
+		model.renderField("fingerprint:", gateText(request.KeyFingerprint)),
+	)
 	if len(request.Scopes) > 0 {
 		scopeIndex := model.selectedScope(request)
 		scope := request.Scopes[scopeIndex]
@@ -448,14 +472,14 @@ func (model gateModel) renderRequest(index int, request gate.Request) string {
 			selection = "automatic: command group"
 		}
 		lines = append(lines,
-			"     commands (outer to requester): "+strings.Join(labels, " > "),
-			gateTitleStyle.Render(fmt.Sprintf("     remember scope: %s", process.CommandLine(scope.Cmdline))),
-			fmt.Sprintf("     scope PID %d · %s · %s", scope.PID, gateText(scope.Exe), selection),
-			"     [m] permits this command and its descendants to use only this key",
-			"     permission ends when the chosen TTL expires or this command exits",
+			model.renderField("commands:", strings.Join(labels, " > ")),
+			model.renderEmphasizedField("remember scope:", process.CommandLine(scope.Cmdline)),
+			model.renderField("scope pid:", fmt.Sprintf("%d", scope.PID)),
+			model.renderField("scope exe:", gateText(scope.Exe)),
+			model.renderField("selection:", selection),
 		)
 	} else {
-		lines = append(lines, gatePendingStyle.Render("     remember unavailable: command instance could not be identified"))
+		lines = append(lines, gatePendingStyle.Render(model.renderField("remember:", "command instance could not be identified")))
 	}
 	return strings.Join(lines, "\n")
 }

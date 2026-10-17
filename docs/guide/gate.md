@@ -24,16 +24,17 @@ bwsshntfr gate
 Every `SSH_AGENTC_SIGN_REQUEST` now waits for a decision. The TUI shows one card per pending request:
 
 ```text
-▶ #1  key: smoke-key
-      requester: ssh git@github.com
-      PID 311351 · /usr/bin/ssh
-      tree: ssh <- git <- jj <- zsh <- foot
-      42s  fingerprint: SHA256:4l1H5hoUp0QLoZWSJ1HYARwU7GgMTHWzWwgGg9FxOew
-      commands (outer to requester): jj > git > [ssh]
-      remember scope: ssh git@github.com
-      scope PID 311351 · /usr/bin/ssh · default: requester
-      [m] permits this command and its descendants to use only this key
-      permission ends when the chosen TTL expires or this command exits
+▶ #1  key: smoke-key  timeout: 42s
+  requester:      ssh git@github.com
+  pid:            311351
+  executable:     /usr/bin/ssh
+  tree:           ssh <- git <- jj <- zsh <- foot
+  fingerprint:    SHA256:4l1H5hoUp0QLoZWSJ1HYARwU7GgMTHWzWwgGg9FxOew
+  commands:       jj > git > [ssh]
+  remember scope: ssh git@github.com
+  scope pid:      311351
+  scope exe:      /usr/bin/ssh
+  selection:      default: requester
 ```
 
 Keys:

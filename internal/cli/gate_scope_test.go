@@ -14,6 +14,7 @@ import (
 func scopeRequest(id string) gate.Request {
 	return gate.Request{
 		ID: id, KeyComment: "Laptop", ClientPID: 100, ClientCmdline: "ssh git@example.test",
+		Deadline: time.Now().Add(time.Minute),
 		Scopes: []process.Summary{
 			{PID: 100, StartTime: 30, Exe: "/usr/bin/ssh", Cmdline: []string{"ssh", "git@example.test"}},
 			{PID: 99, StartTime: 20, Exe: "/usr/bin/git", Cmdline: []string{"git", "fetch", "origin"}},
@@ -122,9 +123,9 @@ func TestGateRenderExplainsRequesterScopeAndLifetime(t *testing.T) {
 	model := gateModel{scopeSelections: map[string]int{request.ID: 2}}
 	rendered := model.renderRequest(0, request)
 	for _, text := range []string{
-		"ssh git@example.test", "remember scope: bd sync", "scope PID 98",
-		"manual selection", "[bd] > git > ssh", "descendants", "only this key",
-		"TTL expires", "this command exits",
+		"  requester:      ssh git@example.test", "  remember scope: bd sync", "  scope pid:      98",
+		"  selection:      manual selection", "  commands:       [bd] > git > ssh",
+		"timeout:",
 	} {
 		if !strings.Contains(rendered, text) {
 			t.Fatalf("rendered request missing %q:\n%s", text, rendered)
@@ -132,6 +133,20 @@ func TestGateRenderExplainsRequesterScopeAndLifetime(t *testing.T) {
 	}
 }
 
+func TestGateRenderEmphasizesRememberScopeValue(t *testing.T) {
+	request := scopeRequest("emphasis")
+	model := gateModel{scopeSelections: map[string]int{request.ID: 2}}
+	rendered := model.renderRequest(0, request)
+	if !strings.Contains(rendered, "remember scope:") || !strings.Contains(rendered, "bd sync") {
+		t.Fatalf("rendered request missing remember scope: %q", rendered)
+	}
+	if !strings.Contains(rendered, gateTitleStyle.Render("bd sync")) {
+		t.Fatalf("remember scope value is not emphasized: %q", rendered)
+	}
+	if strings.Contains(rendered, "access:") || strings.Contains(rendered, "lifetime:") {
+		t.Fatalf("rendered request contains explanatory policy fields: %q", rendered)
+	}
+}
 func TestGateViewWrapsLongCommandsWithoutHidingArguments(t *testing.T) {
 	request := scopeRequest("wrap")
 	request.Scopes[0].Cmdline = []string{"ssh", "--long-argument=" + strings.Repeat("Z", 120)}

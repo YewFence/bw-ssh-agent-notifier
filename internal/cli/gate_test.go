@@ -20,16 +20,16 @@ func TestRenderRequestPrioritizesReadableKeyName(t *testing.T) {
 	}
 
 	rendered := (gateModel{}).renderRequest(0, request)
-	nameIndex := strings.Index(rendered, "key: GitSigning")
-	fingerprintIndex := strings.Index(rendered, "fingerprint: SHA256:less-important")
-	if nameIndex < 0 {
+	keyIndex := strings.Index(rendered, "key: GitSigning")
+	fingerprintIndex := strings.Index(rendered, "fingerprint:")
+	if keyIndex < 0 {
 		t.Fatalf("renderRequest() = %q, want readable key name", rendered)
 	}
 	if fingerprintIndex < 0 {
 		t.Fatalf("renderRequest() = %q, want fingerprint as secondary detail", rendered)
 	}
-	if nameIndex > fingerprintIndex {
-		t.Fatalf("renderRequest() = %q, want key name before fingerprint", rendered)
+	if keyIndex > fingerprintIndex {
+		t.Fatalf("renderRequest() = %q, want key before fingerprint", rendered)
 	}
 }
 
