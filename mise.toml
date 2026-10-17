@@ -5,19 +5,19 @@ minimum_release_age = "3d"
 
 [tools]
 # https://go.dev/
-go = "1.26.5"
+go = "1.27.2"
 # https://nodejs.org/
 node = "26"
 # https://pnpm.io/
-pnpm = "11"
+pnpm = "12"
 # https://golangci-lint.run/
 golangci-lint = "2"
 # https://github.com/suzuki-shunsuke/nllint
 "go:github.com/suzuki-shunsuke/nllint/cmd/nllint" = "1"
 # https://github.com/suzuki-shunsuke/pinact
-pinact = "4"
+pinact = "5"
 # https://github.com/crate-ci/typos
-typos = "1.48.0"
+typos = "1.51.1"
 betterleaks = "1"
 actionlint = "1"
 git-cliff = "latest"
