@@ -342,14 +342,14 @@ func (model gateModel) renderRequest(index int, request gate.Request) string {
 	}
 	remaining := time.Until(request.Deadline).Round(time.Second)
 	lines := []string{
-		fmt.Sprintf("%s#%s  %s", cursor, request.ID, keyStyle.Render(request.KeyName())),
+		fmt.Sprintf("%s#%s  key: %s", cursor, request.ID, keyStyle.Render(request.KeyName())),
 		fmt.Sprintf("     %s", request.ClientCmdline),
 		fmt.Sprintf("     PID %d · %s", request.ClientPID, request.ClientExe),
 	}
 	if request.ParentChain != "" {
 		lines = append(lines, fmt.Sprintf("     tree: %s", request.ParentChain))
 	}
-	lines = append(lines, fmt.Sprintf("     %s  %s", remaining, request.KeyFingerprint))
+	lines = append(lines, fmt.Sprintf("     %s  fingerprint: %s", remaining, request.KeyFingerprint))
 	for i := 1; i < len(lines); i++ {
 		lines[i] = gateDimStyle.Render(lines[i])
 	}

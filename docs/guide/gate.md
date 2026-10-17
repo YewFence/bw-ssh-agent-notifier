@@ -24,11 +24,11 @@ bwsshntfr gate
 Every `SSH_AGENTC_SIGN_REQUEST` now waits for a decision. The TUI shows one card per pending request:
 
 ```text
-▶ #1  smoke-key
+▶ #1  key: smoke-key
       ssh git@github.com
       PID 311351 · /usr/bin/ssh
       tree: ssh <- git <- jj <- zsh <- foot
-      42s  SHA256:4l1H5hoUp0QLoZWSJ1HYARwU7GgMTHWzWwgGg9FxOew
+      42s  fingerprint: SHA256:4l1H5hoUp0QLoZWSJ1HYARwU7GgMTHWzWwgGg9FxOew
 ```
 
 Keys:
