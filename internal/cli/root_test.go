@@ -72,6 +72,7 @@ func TestRootCommandHelpShowsEnvOverrides(t *testing.T) {
 		"WRAPPER_NOTIFY_EXPIRE_TIMEOUT",
 		"WRAPPER_NOTIFY_FULL_PROCESS_TREE",
 		"WRAPPER_PARENT_DEPTH",
+		"WRAPPER_GATE_COMMAND_GROUPS",
 	} {
 		if !strings.Contains(output, envName) {
 			t.Fatalf("help output missing %s:\n%s", envName, output)

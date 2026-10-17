@@ -24,6 +24,12 @@ Check logs with the user journal.
 journalctl --user -u bw-ssh-agent-notifier.service -f
 ```
 
+## Install with mise
+
+Run `mise run service:apply` to write the user-service environment file, build the CLI, and apply the systemd user unit. The environment wizard asks whether to enable signature confirmation. When enabled, enter command prefixes one at a time (for example, `bd sync` or `jj git push`) and submit an empty entry to finish. The saved `WRAPPER_GATE_COMMAND_GROUPS` value is loaded through the service's `EnvironmentFile`; no unit-file editing is needed.
+
+`mise run service:env` runs only the environment wizard. If the environment file already exists, the wizard asks before replacing it.
+
 ## Custom Service File
 
 For advanced users, you can copy [the service template](https://github.com/YewFence/bw-ssh-agent-notifier/blob/main/internal/systemd/bitwarden-ssh-agent-wrapper.service) to your config directory and manually edit it. The following is a simple example.

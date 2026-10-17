@@ -1,12 +1,12 @@
 package config
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -111,9 +111,11 @@ func FromEnv() (Config, error) {
 		cfg.GateRememberTTL = timeout
 	}
 	if value := os.Getenv("WRAPPER_GATE_COMMAND_GROUPS"); value != "" {
-		if err := json.Unmarshal([]byte(value), &cfg.GateCommandGroups); err != nil {
+		groups, err := ParseGateCommandGroups(value)
+		if err != nil {
 			return Config{}, fmt.Errorf("parse WRAPPER_GATE_COMMAND_GROUPS: %w", err)
 		}
+		cfg.GateCommandGroups = groups
 	}
 	if value := os.Getenv("WRAPPER_CONTROL_SOCKET"); value != "" {
 		cfg.ControlSocket = value
@@ -167,6 +169,11 @@ func (cfg Config) Validate() error {
 	for _, group := range cfg.GateCommandGroups {
 		if len(group) == 0 || group[0] == "" {
 			return errors.New("gate command group must contain an executable")
+		}
+		for _, argument := range group {
+			if strings.Contains(argument, ",") {
+				return errors.New("gate command group arguments must not contain commas")
+			}
 		}
 		if !filepath.IsAbs(group[0]) && filepath.Base(group[0]) != group[0] {
 			return errors.New("gate command group executable must be a name or an absolute path")

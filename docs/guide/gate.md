@@ -72,23 +72,23 @@ Remembered requests pass silently (a journal entry records the replay). Memory l
 
 ## Automatically select command groups
 
-Presets select a suitable command scope; they never approve a request. Each group is a JSON argv prefix containing an executable name or absolute path followed by optional exact argument prefixes. Repeat the flag to define several groups:
+Presets select a suitable command scope; they never approve a request. Each group is a whitespace-separated argv prefix containing an executable name or absolute path followed by optional exact argument prefixes. Repeat the flag to define several groups:
 
 ```bash
 bwsshntfr run --gate confirm \
-  --gate-command-group '["bd","sync"]' \
-  --gate-command-group '["jj","git","push"]'
+  --gate-command-group "bd sync" \
+  --gate-command-group "jj git push"
 ```
 
-The environment variable takes a JSON array of groups:
+The environment variable takes comma-separated prefixes:
 
 ```bash
 WRAPPER_GATE=confirm \
-WRAPPER_GATE_COMMAND_GROUPS='[["bd","sync"],["jj","git","push"]]' \
+WRAPPER_GATE_COMMAND_GROUPS="bd sync,jj git push" \
 bwsshntfr run
 ```
 
-The nearest matching process wins, regardless of group order. With no match, selection stays at the requester. Matching uses complete argv elements, not substrings or regular expressions. An absolute executable path must match the inspected executable path. Command-line groups replace environment groups. Manual scope changes override the preset for that request and survive request switching and controller state refreshes.
+Within each prefix, whitespace separates argv elements. Commas separate groups in the environment variable, so commas and whitespace cannot be part of an individual argv element. The nearest matching process wins, regardless of group order. With no match, selection stays at the requester. Matching uses complete argv elements, not substrings or regular expressions. An absolute executable path must match the inspected executable path. Command-line groups replace environment groups. Manual scope changes override the preset for that request and survive request switching and controller state refreshes.
 
 ## Troubleshooting
 

@@ -11,7 +11,7 @@ import (
 )
 
 func TestCommandGroupFlagsOverrideEnvAndAcceptRepeatedGroups(t *testing.T) {
-	t.Setenv("WRAPPER_GATE_COMMAND_GROUPS", `[["old-command"]]`)
+	t.Setenv("WRAPPER_GATE_COMMAND_GROUPS", "old-command")
 	called := false
 	command := newRootCommand("test", func(_ context.Context, cfg config.Config, _ *slog.Logger) error {
 		called = true
@@ -23,7 +23,7 @@ func TestCommandGroupFlagsOverrideEnvAndAcceptRepeatedGroups(t *testing.T) {
 	})
 	command.SetOut(io.Discard)
 	command.SetErr(io.Discard)
-	command.SetArgs([]string{"run", "--gate-command-group", `["bd","sync"]`, "--gate-command-group", `["jj","git","push"]`})
+	command.SetArgs([]string{"run", "--gate-command-group", "bd sync", "--gate-command-group", "jj git push"})
 	if err := command.Execute(); err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +33,7 @@ func TestCommandGroupFlagsOverrideEnvAndAcceptRepeatedGroups(t *testing.T) {
 }
 
 func TestCommandGroupFlagsRejectInvalidGroups(t *testing.T) {
-	for _, value := range []string{`bd sync`, `[]`, `[""]`, `["./bd"]`, `["bd",1]`} {
+	for _, value := range []string{"", "   ", "./bd", "tools/bd sync"} {
 		command := newRootCommand("test", func(_ context.Context, _ config.Config, _ *slog.Logger) error {
 			t.Fatal("runner must not be called with invalid groups")
 			return nil

@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -68,9 +67,9 @@ func addConfigFlags(cmd *cobra.Command, cfg *config.Config) {
 	flags.DurationVar(&cfg.GateTimeout, "gate-timeout", cfg.GateTimeout, "gate decision timeout before denying a signature (env: WRAPPER_GATE_TIMEOUT)")
 	flags.DurationVar(&cfg.GateRememberTTL, "gate-remember-ttl", cfg.GateRememberTTL, "default gate allow-remember TTL; 0 disables remembering (env: WRAPPER_GATE_REMEMBER_TTL)")
 	groupsOverridden := false
-	flags.Func("gate-command-group", "automatically select a command scope using a JSON argv prefix; repeat for multiple groups (env: WRAPPER_GATE_COMMAND_GROUPS)", func(value string) error {
-		var group []string
-		if err := json.Unmarshal([]byte(value), &group); err != nil {
+	flags.Func("gate-command-group", "automatically select a command scope using a whitespace-separated argv prefix; repeat for multiple groups (env: WRAPPER_GATE_COMMAND_GROUPS)", func(value string) error {
+		group, err := config.ParseGateCommandGroup(value)
+		if err != nil {
 			return fmt.Errorf("parse command group: %w", err)
 		}
 		if !groupsOverridden {

@@ -6,7 +6,7 @@ import (
 )
 
 func TestCommandGroupsFromEnv(t *testing.T) {
-	t.Setenv("WRAPPER_GATE_COMMAND_GROUPS", `[["bd","sync"],["/usr/bin/jj","git","push"]]`)
+	t.Setenv("WRAPPER_GATE_COMMAND_GROUPS", "bd sync,/usr/bin/jj git push")
 	cfg, err := FromEnv()
 	if err != nil {
 		t.Fatal(err)
@@ -21,11 +21,36 @@ func TestCommandGroupsFromEnv(t *testing.T) {
 }
 
 func TestCommandGroupsRejectMalformedEnv(t *testing.T) {
-	for _, value := range []string{`bd sync`, `["bd"]`, `[[42]]`, `[["bd"]] trailing`} {
+	for _, value := range []string{"bd sync,", ",jj git push", "bd sync,,jj git push", "   "} {
 		t.Setenv("WRAPPER_GATE_COMMAND_GROUPS", value)
 		if _, err := FromEnv(); err == nil {
 			t.Fatalf("expected malformed command group error for %q", value)
 		}
+	}
+}
+
+func TestParseCommandGroup(t *testing.T) {
+	group, err := ParseGateCommandGroup("  bd\t sync  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"bd", "sync"}
+	if !reflect.DeepEqual(group, want) {
+		t.Fatalf("group = %v, want %v", group, want)
+	}
+	if _, err := ParseGateCommandGroup(" \t "); err == nil {
+		t.Fatal("empty command group was accepted")
+	}
+}
+
+func TestCommandGroupsRejectCommaArguments(t *testing.T) {
+	cfg, err := FromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.GateCommandGroups = [][]string{{"tool", "--label=a,b"}}
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("comma argument was accepted")
 	}
 }
 

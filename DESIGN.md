@@ -172,7 +172,7 @@ controller -> server: {"type":"decide","id":"3","decision":"allow|deny","remembe
 
 授权标识 = `key 指纹 + 所选进程 PID + 内核 start time`，绑定「这一次命令」而非同名命令文本。后续请求的可选命令链包含该实例、且实例仍存活时可复用，内部 git/ssh 等子命令参数不参与匹配。进程身份和存活状态通过 `prometheus/procfs` 读取，PID 重用不能继承授权。每次签名前刷新进程信息，避免沿用连接建立时的祖先快照。
 
-shell、复用器（tmux/zellij/screen）、终端模拟器和会话基础设施（systemd/dbus）只显示为上下文，不是可选命令。默认选择最底层请求者；daemon 的可重复参数 `--gate-command-group '["bd","sync"]'` 或环境变量 `WRAPPER_GATE_COMMAND_GROUPS='[["bd","sync"]]'` 可预设命令组。组内元素是可执行文件名或绝对路径、后接完整 argv 元素前缀；多组同时匹配时选最近的命令。命令行组替换环境变量组。预设只负责自动选层，绝不自动授权。
+shell、复用器（tmux/zellij/screen）、终端模拟器和会话基础设施（systemd/dbus）只显示为上下文，不是可选命令。默认选择最底层请求者；daemon 的可重复参数 `--gate-command-group "bd sync"` 或环境变量 `WRAPPER_GATE_COMMAND_GROUPS="bd sync,jj git push"` 可预设命令组。组内元素由空白分隔，环境变量用逗号分隔多组；逗号和空格不能出现在单个参数中。组内是可执行文件名或绝对路径、后接完整 argv 元素前缀；多组同时匹配时选最近的命令。命令行组替换环境变量组。预设只负责自动选层，绝不自动授权。
 
 属性：
 
@@ -379,7 +379,7 @@ WRAPPER_PARENT_DEPTH=5
 WRAPPER_GATE=off
 WRAPPER_GATE_TIMEOUT=60s
 WRAPPER_GATE_REMEMBER_TTL=1m
-WRAPPER_GATE_COMMAND_GROUPS=[]
+WRAPPER_GATE_COMMAND_GROUPS=""
 WRAPPER_CONTROL_SOCKET=$XDG_RUNTIME_DIR/bitwarden-ssh-agent-wrapper-control.sock
 ```
 
