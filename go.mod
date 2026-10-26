@@ -7,7 +7,7 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/godbus/dbus/v5 v5.2.4
 	github.com/muesli/termenv v0.16.0
-	github.com/prometheus/procfs v0.22.0
+	github.com/prometheus/procfs v0.23.0
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/crypto v0.58.0
 )
