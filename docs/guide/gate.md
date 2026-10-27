@@ -54,8 +54,8 @@ One-shot allow and deny decisions also resolve pending requests from the same re
 
 ## Fail-closed behavior
 
-- If no controller is connected, the signature is denied immediately.
-- If no decision arrives within `--gate-timeout` (default 60s), the signature is denied.
+- If no decision arrives within `--gate-timeout` (default 60s), the signature is denied, even when no controller is connected.
+- If the requesting client disconnects while waiting, the request is canceled and removed from the controller.
 - Every denial sends a desktop notification explaining the reason, and both events are logged to the journal.
 
 Key listing and other read requests pass through untouched; key management requests (`ssh-add -D`, lock, extensions) are always rejected by the gate.
@@ -93,7 +93,8 @@ Within each prefix, whitespace separates argv elements. Commas separate groups i
 ## Troubleshooting
 
 - `bwsshntfr gate` fails to connect: the daemon is not running or not in confirm mode. Check `WRAPPER_GATE`/`--gate`.
-- Every signature is denied with `no-controller`: the controller connection dropped; reopen `bwsshntfr gate`.
+- Requests time out without a decision: check that `bwsshntfr gate` is connected and approve or deny them before the timeout.
 - A remembered allow stopped working: the daemon restarted, the TTL expired, the selected command exited, or the request comes from outside that command's inspected descendant chain. Running the same command again is a new process instance.
+- The selected command scope has exited: select a live scope or allow the request once.
 - A useful ancestor is missing: increase `--parent-depth`; shells and session infrastructure cannot be selected.
 - To audit scope decisions, look for `command_scopes` on connection logs and `scope_pid`, `scope_start_time`, and `scope_cmdline` on remembered-decision logs.

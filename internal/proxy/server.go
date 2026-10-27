@@ -135,6 +135,7 @@ func (server Server) handleClient(ctx context.Context, client *net.UnixConn, not
 	if coordinator != nil {
 		gateAgent := &gate.Agent{
 			ConnCtx:       ctx,
+			ClientConn:    client,
 			Upstream:      agent.NewClient(upstream),
 			Coordinator:   coordinator,
 			Client:        clientInfo,

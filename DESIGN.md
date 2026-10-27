@@ -150,8 +150,8 @@ Bitwarden sock
 
 失败策略是 fail-closed：
 
-1. 没有控制器连接时立即拒绝，并发通知说明原因。
-2. 超过 `--gate-timeout`（默认 60s）未裁决则拒绝，并发通知说明原因。
+1. 超过 `--gate-timeout`（默认 60s）未裁决则拒绝，并发通知说明原因；没有控制器连接时也正常等待至超时。
+2. 请求方连接断开时撤销待决请求，并通知控制器。
 3. daemon 关闭时未决请求按 shutdown 拒绝。
 
 ### 控制通道
@@ -432,7 +432,7 @@ github.com/charmbracelet/lipgloss   # TUI 样式
 5. 查看桌面通知，确认显示调用方进程。
 6. 查看 `journalctl --user -u bitwarden-ssh-agent-wrapper.service -f`，确认日志里有 `pid`、`exe`、`cmdline` 和父进程链。
 7. 以 `--gate confirm` 重启 wrapper，打开 `bwsshntfr gate`，执行一次 `ssh` 或 `git push`：
-   - 不开 TUI 时签名立即被拒，通知说明 no-controller。
+   - 不开 TUI 时签名等待至 gate-timeout 后被拒，通知说明 timeout。
    - 开 TUI 但不裁决，超过 gate-timeout 后被拒，通知说明 timeout。
    - TUI 按 `a` 一次放行；用 `h/l` 选择发起命令实例，按 `m` 选 1m，随后该实例下不同内部子命令使用同 key 不再询问（journal 出现 allowed by remembered decision）。所选命令退出或 TTL 到期后失效；同样命令重新启动需要重新确认。
    - 换一个分支名重复执行，重新弹出询问。

@@ -2,6 +2,7 @@ package gate
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"path/filepath"
@@ -68,6 +69,7 @@ const (
 	SourceTimeout      Source = "timeout"
 	SourceNoController Source = "no-controller"
 	SourceShutdown     Source = "shutdown"
+	SourceDisconnected Source = "client-disconnected"
 )
 
 type Result struct {
@@ -209,7 +211,11 @@ func (coordinator *Coordinator) Submit(ctx context.Context, request Request) (Re
 	case <-timer.C:
 		result = coordinator.resolve(request.ID, Result{Outcome: OutcomeDenied, Source: SourceTimeout})
 	case <-ctx.Done():
-		result = coordinator.resolve(request.ID, Result{Outcome: OutcomeDenied, Source: SourceShutdown})
+		source := SourceShutdown
+		if errors.Is(context.Cause(ctx), errClientDisconnected) {
+			source = SourceDisconnected
+		}
+		result = coordinator.resolve(request.ID, Result{Outcome: OutcomeDenied, Source: source})
 	}
 
 	coordinator.finish(request, result)
@@ -242,7 +248,7 @@ func (coordinator *Coordinator) Decide(id string, allow bool, remember time.Dura
 		scope := entry.request.Scopes[scopeIndex]
 		instance = scope.Instance()
 		if !instance.Alive() {
-			return fmt.Errorf("command scope pid %d has exited", instance.PID)
+			return fmt.Errorf("command scope pid %d has exited; select a live scope or allow once", instance.PID)
 		}
 		coordinator.remember[grantKey{Fingerprint: entry.request.KeyFingerprint, Process: instance}] = time.Now().Add(remember)
 		coordinator.logger.Info(
@@ -278,7 +284,9 @@ func (coordinator *Coordinator) Pending() []Request {
 	defer coordinator.mu.Unlock()
 	requests := make([]Request, 0, len(coordinator.pending))
 	for _, entry := range coordinator.pending {
-		requests = append(requests, entry.request)
+		if !entry.resolved {
+			requests = append(requests, entry.request)
+		}
 	}
 	sort.Slice(requests, func(i, j int) bool {
 		left, leftErr := strconv.Atoi(requests[i].ID)
@@ -327,8 +335,11 @@ func (coordinator *Coordinator) resolve(id string, result Result) Result {
 	coordinator.mu.Lock()
 	defer coordinator.mu.Unlock()
 	entry, ok := coordinator.pending[id]
-	if !ok || entry.resolved {
+	if !ok {
 		return result
+	}
+	if entry.resolved {
+		return entry.result
 	}
 	coordinator.resolveLocked(entry, result)
 	return entry.result
@@ -362,7 +373,7 @@ func (coordinator *Coordinator) finish(request Request, result Result) {
 
 func (coordinator *Coordinator) hasPendingFingerprint(fingerprint string) bool {
 	for _, entry := range coordinator.pending {
-		if entry.request.KeyFingerprint == fingerprint {
+		if !entry.resolved && entry.request.KeyFingerprint == fingerprint {
 			return true
 		}
 	}
@@ -439,6 +450,8 @@ func resultBody(request Request, result Result) string {
 		reason = "no gate controller connected"
 	case SourceShutdown:
 		reason = "gate is shutting down"
+	case SourceDisconnected:
+		reason = "client disconnected"
 	}
 	return fmt.Sprintf("%s · %s\n%s", request.ClientName(), request.KeyName(), reason)
 }

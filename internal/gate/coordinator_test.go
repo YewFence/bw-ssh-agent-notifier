@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -108,6 +109,19 @@ func TestSubmitControllerDecision(t *testing.T) {
 			t.Fatalf("resolved = %+v, want %s/%s", resolved, pending.ID, want)
 		}
 		cancel()
+	}
+}
+
+func TestPendingSnapshotExcludesResolvedEntries(t *testing.T) {
+	coordinator := newTestCoordinator(time.Second, notify.Noop())
+	request := testRequest("SHA256:resolved")
+	request.ID = "1"
+	coordinator.pending[request.ID] = &pendingEntry{request: request, resolved: true}
+	if requests := coordinator.Pending(); len(requests) != 0 {
+		t.Fatalf("resolved request in pending snapshot: %+v", requests)
+	}
+	if coordinator.hasPendingFingerprint(request.KeyFingerprint) {
+		t.Fatal("resolved request suppresses a new notification")
 	}
 }
 
@@ -354,8 +368,12 @@ func TestDecideRejectsInvalidOrExitedScope(t *testing.T) {
 	request.Scopes[0].StartTime++
 	pending, results := submitPending(t, coordinator, request)
 	for _, scope := range []int{-1, 1, 0} {
-		if err := coordinator.Decide(pending.ID, true, time.Minute, scope); err == nil {
+		err := coordinator.Decide(pending.ID, true, time.Minute, scope)
+		if err == nil {
 			t.Fatalf("expected invalid/exited scope error for %d", scope)
+		}
+		if scope == 0 && !strings.Contains(err.Error(), "select a live scope or allow once") {
+			t.Fatalf("exited scope error = %q, missing recovery guidance", err)
 		}
 	}
 	if err := coordinator.Decide(pending.ID, false, 0, 0); err != nil {
@@ -363,6 +381,35 @@ func TestDecideRejectsInvalidOrExitedScope(t *testing.T) {
 	}
 	if result := <-results; result.Outcome != OutcomeDenied {
 		t.Fatalf("invalid scope request = %+v, want denied", result)
+	}
+	pending, results = submitPending(t, coordinator, request)
+	if err := coordinator.Decide(pending.ID, true, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	if result := <-results; result.Outcome != OutcomeAllowed {
+		t.Fatalf("invalid scope request = %+v, want allowed once", result)
+	}
+}
+
+func TestDecideExitedAncestorCanSelectLiveRequester(t *testing.T) {
+	coordinator := newTestCoordinator(time.Second, notify.Noop())
+	request := testRequest("SHA256:ancestor-exited")
+	exited := request.Scopes[0]
+	exited.StartTime++
+	request.Scopes = append(request.Scopes, exited)
+	pending, results := submitPending(t, coordinator, request)
+	if err := coordinator.Decide(pending.ID, true, time.Minute, 1); err == nil {
+		t.Fatal("expected error for exited ancestor")
+	}
+	if err := coordinator.Decide(pending.ID, true, time.Minute, 0); err != nil {
+		t.Fatalf("remember live requester: %v", err)
+	}
+	if result := <-results; result.Outcome != OutcomeAllowed || result.Source != SourceController {
+		t.Fatalf("result = %+v, want allowed/controller", result)
+	}
+	replay, err := coordinator.Submit(t.Context(), request)
+	if replay.Outcome != OutcomeAllowed || replay.Source != SourceMemory || err != nil {
+		t.Fatalf("replay = %+v, %v; want allowed/memory", replay, err)
 	}
 }
 

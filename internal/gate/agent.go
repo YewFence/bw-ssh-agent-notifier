@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net"
 
 	"github.com/YewFence/bw-ssh-agent-notifier/internal/process"
 	"golang.org/x/crypto/ssh"
@@ -18,6 +19,7 @@ var ErrRejected = errors.New("operation rejected by gate")
 // rejected so nothing can manage keys through the gate.
 type Agent struct {
 	ConnCtx       context.Context
+	ClientConn    *net.UnixConn
 	Upstream      agent.ExtendedAgent
 	Coordinator   *Coordinator
 	Client        process.Info
@@ -44,7 +46,15 @@ func (gateAgent *Agent) SignWithFlags(key ssh.PublicKey, data []byte, flags agen
 		return nil, ErrRejected
 	}
 	gateAgent.Client = client
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	if gateAgent.ClientConn != nil {
+		go watchClientDisconnect(ctx, gateAgent.ClientConn, cancel, gateAgent.Logger)
+	}
 	if _, err := gateAgent.Coordinator.Submit(ctx, gateAgent.buildRequest(key)); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	return gateAgent.Upstream.SignWithFlags(key, data, flags)

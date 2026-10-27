@@ -55,7 +55,7 @@ Supported gate modes:
 | `off` | Transparent forwarding with notifications only. No SSH agent protocol parsing. |
 | `confirm` | Intercept `SSH_AGENTC_SIGN_REQUEST`; every other request type is forwarded, and key management requests are always rejected. |
 
-The gate fails closed: with no controller connected, or when no decision arrives within the decision timeout, the signature is denied and a desktop notification explains the reason.
+The gate fails closed: when no decision arrives within the decision timeout, the signature is denied and a desktop notification explains the reason, including when no controller is connected.
 
 The remember TTL is a fixed, non-renewing window applied when you allow a request with `m` in the TUI. A grant covers the selected process instance and its descendants for this key only, and ends at expiration or process exit. A new invocation of the same command does not inherit the grant. Set `0` to disable remembering entirely.
 
