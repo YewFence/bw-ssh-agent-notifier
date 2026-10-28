@@ -1,3 +1,8 @@
+## What's Changed in 0.2.1
+* cancel requests when clients disconnect by @YewFence
+
+**Full Changelog**: https://github.com/YewFence/bw-ssh-agent-notifier/compare/v0.2.0...v0.2.1
+
 ## What's Changed in 0.2.0
 * simplify command prefix configuration by @YewFence
 * ci(deps): update github actions to v5.1.2 by @renovate[bot] in [#11](https://github.com/YewFence/bw-ssh-agent-notifier/pull/11)
