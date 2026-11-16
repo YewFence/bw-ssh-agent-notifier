@@ -1,3 +1,11 @@
+## What's Changed in 0.2.2
+* chore(gomod-deps): update go modules by @renovate[bot] in [#23](https://github.com/YewFence/bw-ssh-agent-notifier/pull/23)
+* chore(go-deps): update dependency go to v1.27.4 by @renovate[bot] in [#22](https://github.com/YewFence/bw-ssh-agent-notifier/pull/22)
+* ci(deps): update github actions to v5.2.8 by @renovate[bot] in [#21](https://github.com/YewFence/bw-ssh-agent-notifier/pull/21)
+* chore(mise-deps): update mise tools by @renovate[bot] in [#18](https://github.com/YewFence/bw-ssh-agent-notifier/pull/18)
+
+**Full Changelog**: https://github.com/YewFence/bw-ssh-agent-notifier/compare/v0.2.1...v0.2.2
+
 ## What's Changed in 0.2.1
 * cancel requests when clients disconnect by @YewFence
 
