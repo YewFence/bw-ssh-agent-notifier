@@ -1,6 +1,6 @@
 module github.com/YewFence/bw-ssh-agent-notifier
 
-go 1.27.2
+go 1.27.4
 
 require (
 	github.com/charmbracelet/bubbletea v1.3.10
